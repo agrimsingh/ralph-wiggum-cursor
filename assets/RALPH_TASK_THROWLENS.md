@@ -7,7 +7,7 @@ completion_criteria:
   - Throw path tracing
   - Confidence/soundness bands
   - Boundary detection
-  - CLI adapter
+  - CLI adapter working end-to-end
   - All test assertions pass
 max_iterations: 100
 ---
@@ -63,7 +63,7 @@ Split into 3 layers from day 1:
 
 ## Core Data Types
 
-### Confidence Bands (Soundness)
+### Confidence Bands (Soundness) - MANDATORY
 
 ```typescript
 type Confidence = "certain" | "likely" | "possible" | "unknown";
@@ -78,8 +78,8 @@ type ConfidenceReason =
 
 interface ThrowInfo {
   type: string;                    // Error type name
-  confidence: Confidence;
-  reason: ConfidenceReason;
+  confidence: Confidence;          // REQUIRED - tests will fail without this
+  reason: ConfidenceReason;        // REQUIRED - tests will fail without this
   location: SourceLocation;
 }
 ```
@@ -94,6 +94,8 @@ type PathKind = "witness" | "summary";
 interface ThrowPath {
   kind: PathKind;
   errorType: string;
+  confidence: Confidence;          // REQUIRED on paths too
+  reason: ConfidenceReason;        // REQUIRED on paths too
   frames: PathFrame[];
   caughtAt: SourceLocation | null;  // null = uncaught
 }
@@ -115,6 +117,13 @@ interface FunctionSummary {
   paths: ThrowPath[];
   isBoundary: boolean;
   boundaryKind?: "export" | "handler" | "entrypoint";
+}
+
+// The analyze result MUST include populated functions object
+interface AnalyzeResult {
+  functions: Record<string, FunctionSummary>;  // MUST NOT be empty
+  uncaughtAtBoundaries: ThrowPath[];
+  files: string[];
 }
 ```
 
@@ -153,13 +162,13 @@ interface FunctionSummary {
 1. [ ] Parse TypeScript files using Compiler API
 2. [ ] Find all `throw` statements with their error types
 3. [ ] Build call graph for analyzed files
-4. [ ] Create FunctionSummary for each function
+4. [ ] Create FunctionSummary for each function (functions object MUST be populated)
 5. [ ] Core is pure: no I/O, no CLI, just data in → data out
 
 ### Phase 2: Throw Path Tracing
 6. [ ] Trace throws through call graph (single level)
 7. [ ] Trace throws through multiple call levels (3+ deep)
-8. [ ] Assign confidence levels based on ConfidenceReason
+8. [ ] Assign confidence levels based on ConfidenceReason (MANDATORY)
 9. [ ] Distinguish witness vs summary paths
 10. [ ] Handle direct throws: `throw new Error()`
 11. [ ] Handle typed throws: `throw new CustomError()`
@@ -184,10 +193,10 @@ interface FunctionSummary {
 24. [ ] Support analyzeChangedFiles() for incremental updates
 25. [ ] Symbol ID stability across minor edits
 
-### Phase 6: CLI Adapter
-26. [ ] `throwlens analyze <path>` - analyze files/directory
+### Phase 6: CLI Adapter (MUST WORK END-TO-END)
+26. [ ] `throwlens analyze <path>` - analyze files/directory AND PRODUCE OUTPUT
 27. [ ] `throwlens analyze --function <name>` - analyze specific function
-28. [ ] `--output json` - machine-readable output
+28. [ ] `--output json` - machine-readable output (MUST NOT BE EMPTY)
 29. [ ] `--output pretty` - human-readable terminal output
 30. [ ] `--config <path>` - use config file
 31. [ ] Exit code 1 if uncaught throws at boundaries, 0 otherwise
@@ -203,6 +212,11 @@ interface FunctionSummary {
 
 ## MANDATORY TEST CASES
 
+**IMPORTANT:** Tests MUST verify:
+1. The CLI produces output (not blank)
+2. Required fields exist (confidence, reason, functions)
+3. Output structure matches the spec
+
 ### Test 1: Basic Throw Detection
 ```typescript
 // test/fixtures/basic-throw.ts
@@ -211,19 +225,33 @@ export function willThrow(): never {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/basic-throw.ts --output json`
+**Test assertions (run-tests.js must check ALL of these):**
+```javascript
+// CLI must produce output
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/basic-throw.ts --output json').toString();
+assert(cliOutput.length > 10, "CLI must produce output");
 
-**REQUIRED in output:**
-- Function `willThrow` has throws array with length 1
-- Throw type is "Error"
-- Confidence is "certain"
-- Reason is "explicit-throw"
+// Parse and verify structure
+const result = JSON.parse(cliOutput);
+assert(result.functions !== undefined, "Must have functions object");
+assert(Object.keys(result.functions).length > 0, "Functions object must not be empty");
+
+// Verify the function summary
+const fn = Object.values(result.functions).find(f => f.name.includes('willThrow'));
+assert(fn, "Must find willThrow function");
+assert(fn.throws.length > 0, "Must have throws");
+assert(fn.throws[0].type === "Error", "Throw type must be Error");
+assert(fn.throws[0].confidence === "certain", "Confidence must be certain");
+assert(fn.throws[0].reason === "explicit-throw", "Reason must be explicit-throw");
+```
 
 ---
 
 ### Test 2: Call Graph Tracing (2 levels)
 ```typescript
 // test/fixtures/two-level.ts
+class ValidationError extends Error {}
+
 function inner(): void {
   throw new ValidationError("invalid");
 }
@@ -233,19 +261,29 @@ export function outer(): void {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/two-level.ts --function outer --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/two-level.ts --output json').toString();
+assert(cliOutput.length > 10, "CLI must produce output");
 
-**REQUIRED:**
-- `outer` throws `ValidationError`
-- Path has 2 frames: `outer` → `inner`
-- Path kind is "witness"
-- Confidence is "certain"
+const result = JSON.parse(cliOutput);
+
+// Check uncaughtAtBoundaries
+assert(result.uncaughtAtBoundaries.length > 0, "Must have uncaught throws");
+const path = result.uncaughtAtBoundaries[0];
+assert(path.errorType === "ValidationError", "Error type must be ValidationError");
+assert(path.kind === "witness", "Path kind must be witness");
+assert(path.frames.length === 2, "Path must have 2 frames");
+assert(path.confidence === "certain", "Path confidence must be certain");
+```
 
 ---
 
 ### Test 3: Call Graph Tracing (3+ levels)
 ```typescript
 // test/fixtures/deep-call.ts
+class DeepError extends Error {}
+
 function level3(): void {
   throw new DeepError("deep");
 }
@@ -263,12 +301,17 @@ export function entrypoint(): void {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/deep-call.ts --function entrypoint --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/deep-call.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `entrypoint` throws `DeepError`
-- Path has 4 frames: `entrypoint` → `level1` → `level2` → `level3`
-- All frames present in correct order
+const path = result.uncaughtAtBoundaries.find(p => p.errorType === "DeepError");
+assert(path, "Must find DeepError path");
+assert(path.frames.length === 4, "Path must have 4 frames");
+assert(path.frames[0].function.includes("entrypoint"), "First frame must be entrypoint");
+assert(path.frames[3].action === "throws", "Last frame must be throws");
+```
 
 ---
 
@@ -289,17 +332,25 @@ export function catcher(): string {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/caught.ts --function catcher --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/caught.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `catcher` has throws array with length 0 (all caught)
-- OR throws array shows `caughtAt` is not null
+// catcher should have no uncaught throws
+const uncaughtForCatcher = result.uncaughtAtBoundaries.filter(p => 
+  p.frames[0].function.includes("catcher")
+);
+assert(uncaughtForCatcher.length === 0, "catcher should have no uncaught throws");
+```
 
 ---
 
 ### Test 5: Re-throw Detection
 ```typescript
 // test/fixtures/rethrow.ts
+class OriginalError extends Error {}
+
 function inner(): void {
   throw new OriginalError("original");
 }
@@ -313,17 +364,28 @@ export function rethrows(): void {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/rethrow.ts --function rethrows --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/rethrow.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `rethrows` throws `OriginalError`
-- Path shows the re-throw
+const path = result.uncaughtAtBoundaries.find(p => p.errorType === "OriginalError");
+assert(path, "Must find OriginalError (re-thrown)");
+assert(path.frames.some(f => f.action === "rethrows"), "Must show rethrow in path");
+```
 
 ---
 
 ### Test 6: Error Wrapping
 ```typescript
 // test/fixtures/wrap.ts
+class LowLevelError extends Error {}
+class HighLevelError extends Error {
+  constructor(message: string, options?: { cause?: Error }) {
+    super(message);
+  }
+}
+
 function inner(): void {
   throw new LowLevelError("low");
 }
@@ -337,17 +399,27 @@ export function wraps(): void {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/wrap.ts --function wraps --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/wrap.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `wraps` throws `HighLevelError` (the wrapper)
-- `LowLevelError` is marked as handled/wrapped at catch site
+// Should show HighLevelError as what escapes
+const path = result.uncaughtAtBoundaries.find(p => p.errorType === "HighLevelError");
+assert(path, "Must find HighLevelError (the wrapper)");
+
+// LowLevelError should NOT be in uncaughtAtBoundaries (it was caught)
+const lowLevel = result.uncaughtAtBoundaries.find(p => p.errorType === "LowLevelError");
+assert(!lowLevel, "LowLevelError should be caught/wrapped, not uncaught");
+```
 
 ---
 
 ### Test 7: Async/Await
 ```typescript
 // test/fixtures/async.ts
+class NetworkError extends Error {}
+
 async function fetchData(): Promise<string> {
   throw new NetworkError("failed");
 }
@@ -358,17 +430,23 @@ export async function handler(): Promise<void> {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/async.ts --function handler --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/async.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `handler` throws `NetworkError`
-- Path shows `await` as the propagation point
+const path = result.uncaughtAtBoundaries.find(p => p.errorType === "NetworkError");
+assert(path, "Must find NetworkError");
+assert(path.frames.some(f => f.action === "awaits"), "Must show await as propagation point");
+```
 
 ---
 
 ### Test 8: Async with Try/Catch
 ```typescript
 // test/fixtures/async-caught.ts
+class NetworkError extends Error {}
+
 async function fetchData(): Promise<string> {
   throw new NetworkError("failed");
 }
@@ -382,11 +460,17 @@ export async function safeHandler(): Promise<string> {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/async-caught.ts --function safeHandler --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/async-caught.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `safeHandler` has no uncaught throws
-- `NetworkError` is caught
+// safeHandler should have no uncaught throws
+const uncaught = result.uncaughtAtBoundaries.filter(p => 
+  p.frames[0].function.includes("safeHandler")
+);
+assert(uncaught.length === 0, "safeHandler should catch all throws");
+```
 
 ---
 
@@ -400,12 +484,23 @@ export async function readConfig(): Promise<string> {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/external.ts --function readConfig --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/external.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `readConfig` has throws with confidence "unknown" or "possible"
-- Reason is "external-module"
-- Path kind is "summary" (not witness)
+// Should have a path with unknown/possible confidence
+const hasUnknown = result.uncaughtAtBoundaries.some(p => 
+  p.confidence === "unknown" || p.confidence === "possible"
+);
+assert(hasUnknown, "External calls should have unknown/possible confidence");
+
+// Should have external-module reason
+const hasExternalReason = result.uncaughtAtBoundaries.some(p => 
+  p.reason === "external-module"
+);
+assert(hasExternalReason, "External calls should have external-module reason");
+```
 
 ---
 
@@ -425,12 +520,26 @@ function alsoInternal(): void {
 }
 ```
 
-**Command:** `throwlens analyze test/fixtures/boundary.ts --output json`
+**Test assertions:**
+```javascript
+const cliOutput = execSync('node dist/index.js analyze test/fixtures/boundary.ts --output json').toString();
+const result = JSON.parse(cliOutput);
 
-**REQUIRED:**
-- `publicApi` is marked as boundary (isBoundary: true)
-- `internal` and `alsoInternal` are NOT boundaries
-- Report shows uncaught throw at `publicApi` boundary
+// publicApi should be marked as boundary
+const publicApiFn = Object.values(result.functions).find(f => f.name.includes("publicApi"));
+assert(publicApiFn, "Must find publicApi function");
+assert(publicApiFn.isBoundary === true, "publicApi must be marked as boundary");
+
+// internal should NOT be boundary
+const internalFn = Object.values(result.functions).find(f => 
+  f.name.includes("internal") && !f.name.includes("also")
+);
+assert(internalFn, "Must find internal function");
+assert(internalFn.isBoundary !== true, "internal must NOT be boundary");
+
+// Should report uncaught at publicApi boundary
+assert(result.uncaughtAtBoundaries.length > 0, "Must have uncaught at boundary");
+```
 
 ---
 
@@ -468,7 +577,7 @@ throwlens/
 │   │   ├── async-caught.ts
 │   │   ├── external.ts
 │   │   └── boundary.ts
-│   └── run-tests.js           # Test runner
+│   └── run-tests.js           # Test runner - MUST USE execSync to test CLI
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -483,7 +592,9 @@ throwlens/
 ## Constraints
 
 - **Core must be pure** - No I/O, no side effects, just analysis
-- **Tests must assert on exact output** - Not "does it run"
+- **Tests MUST test the CLI** - Use execSync to run the actual CLI, not just core
+- **Tests must assert on required fields** - confidence, reason, functions object
+- **CLI must produce output** - Blank output = test failure
 - **Confidence must be explicit** - Never claim certainty you don't have
 - **Paths must be traceable** - Every throw needs a path to its source
 - **Task is NOT complete until `npm test` exits with code 0**
@@ -496,6 +607,8 @@ throwlens/
 2. **Don't over-claim** - If you can't prove it, mark confidence appropriately
 3. **Don't ignore async** - `await` is a throw site, treat it as such
 4. **Don't forget re-throws** - `catch (e) { throw e }` propagates the original error
+5. **Don't skip CLI testing** - Tests must run the actual CLI binary, not just import core
+6. **Don't leave functions empty** - The functions object in output must be populated
 
 ---
 
@@ -505,6 +618,7 @@ throwlens/
 2. **Run `npm test` after EVERY change**
 3. Confidence bands are NOT optional - implement from the start
 4. If tests fail, read the failure and fix
-5. Commit after each phase
-6. When ALL criteria are [x] AND `npm test` passes: `RALPH_COMPLETE`
-7. If stuck on same issue 3+ times: `RALPH_GUTTER`
+5. **Tests use execSync to run CLI** - If CLI produces no output, tests will fail
+6. Commit after each phase
+7. When ALL criteria are [x] AND `npm test` passes: `RALPH_COMPLETE`
+8. If stuck on same issue 3+ times: `RALPH_GUTTER`
