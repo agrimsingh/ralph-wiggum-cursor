@@ -81,8 +81,10 @@ check_task_complete() {
     return
   fi
   
-  # Count unchecked criteria
-  local unchecked=$(grep -c '\- \[ \]' "$task_file" 2>/dev/null || echo "0")
+  # Count unchecked criteria (supports "- [ ]" and "1. [ ]" formats)
+  local unchecked=$(grep -c '\[ \]' "$task_file" 2>/dev/null || echo "0")
+  unchecked=$(echo "$unchecked" | tr -cd '0-9')
+  [[ -z "$unchecked" ]] && unchecked=0
   
   if [[ "$unchecked" -eq 0 ]]; then
     echo "COMPLETE"
