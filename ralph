@@ -1,0 +1,25 @@
+#!/bin/bash
+# Ralph Wiggum: Launcher
+#
+# This is the entry point for Ralph. It dispatches to the installed script.
+#
+# In installed projects: .cursor/ralph-scripts/ralph
+# In dev (this repo):    scripts/ralph
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check for installed location first (user projects)
+if [[ -f "$SCRIPT_DIR/.cursor/ralph-scripts/ralph" ]]; then
+  exec "$SCRIPT_DIR/.cursor/ralph-scripts/ralph" "$@"
+fi
+
+# Fall back to dev location (this repo)
+if [[ -f "$SCRIPT_DIR/scripts/ralph" ]]; then
+  exec "$SCRIPT_DIR/scripts/ralph" "$@"
+fi
+
+echo "Error: Could not find ralph script."
+echo "Expected at: .cursor/ralph-scripts/ralph or scripts/ralph"
+exit 1

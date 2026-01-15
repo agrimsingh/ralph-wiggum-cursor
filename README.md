@@ -38,7 +38,7 @@ This creates two problems:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      ralph-setup.sh                          │
+│                         ./ralph                              │
 │                           │                                  │
 │              ┌────────────┴────────────┐                    │
 │              ▼                         ▼                    │
@@ -124,13 +124,11 @@ This creates:
 
 ```
 your-project/
-├── .cursor/ralph-scripts/      # Ralph scripts
-│   ├── ralph-setup.sh          # Main entry point (interactive)
-│   ├── ralph-loop.sh           # CLI mode (for scripting)
-│   ├── ralph-once.sh           # Single iteration (testing)
-│   ├── stream-parser.sh        # Token tracking
+├── ralph                       # Main entry point
+├── .cursor/ralph-scripts/      # Internal scripts
+│   ├── ralph                   # CLI implementation
 │   ├── ralph-common.sh         # Shared functions
-│   └── init-ralph.sh           # Re-initialize, print template
+│   └── stream-parser.sh        # Token tracking
 ├── .ralph/                     # State files
 │   ├── guardrails.md           # Lessons learned (shared)
 │   └── runs/<runId>/           # Per-run state (created on first run)
@@ -157,8 +155,11 @@ Ralph uses **Beads-first task tracking**. You bring your own task/plan file — 
 
 ```bash
 # Get the template
+./ralph --print-template > RALPH_TASK.md
+
+# Or put it in a plans directory
 mkdir -p plans
-./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/api.md
+./ralph --print-template > plans/api.md
 ```
 
 Edit your plan file (e.g., `plans/api.md`):
@@ -198,11 +199,14 @@ The following will be converted to Beads tasks when you first run Ralph:
 ### 4. Start the Loop
 
 ```bash
-# Run with your plan file (recommended)
-./.cursor/ralph-scripts/ralph-setup.sh --task-file plans/api.md
+# Run with default task file (RALPH_TASK.md)
+./ralph
 
-# Or with a custom run ID
-./.cursor/ralph-scripts/ralph-setup.sh --task-file plans/api.md --run-id api
+# Or with a custom plan file
+./ralph --task-file plans/api.md
+
+# Or with a custom run ID for parallel runs
+./ralph --task-file plans/api.md --run-id api
 ```
 
 Ralph will:
@@ -242,10 +246,10 @@ Ralph is designed for **multi-plan workflows**. Run multiple tasks in parallel w
 
 ```bash
 # Terminal 1: Work on API
-./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/api.md --run-id api -y &
+./ralph --task-file plans/api.md --run-id api -y &
 
 # Terminal 2: Work on UI
-./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/ui.md --run-id ui -y &
+./ralph --task-file plans/ui.md --run-id ui -y &
 
 # Wait for both
 wait
@@ -272,55 +276,62 @@ your-project/
 └── .cursor/ralph-scripts/
 ```
 
-## Commands
+## Usage
 
-| Command          | Description                                                  |
-| ---------------- | ------------------------------------------------------------ |
-| `ralph-setup.sh` | **Primary** - Interactive setup + run loop                   |
-| `ralph-once.sh`  | Test single iteration before going AFK                       |
-| `ralph-loop.sh`  | CLI mode for scripting (see flags below)                     |
-| `init-ralph.sh`  | Re-initialize state, or `--print-template` for task template |
+```bash
+./ralph [options] [workspace]
+
+Options:
+  --task-file, -f FILE   Task/plan file (default: RALPH_TASK.md)
+  --run-id, -r ID        Run ID for state isolation (default: derived from task file)
+  --once                 Run single iteration then stop (for testing)
+  --limit N              Max iterations (default: 20)
+  --model, -m MODEL      Model to use (default: opus-4.5-thinking)
+  --branch NAME          Create and work on a new branch
+  --pr                   Open PR when complete (requires --branch)
+  --yes, -y              Skip confirmation prompts
+  --print-template       Print task file template to stdout
+  --init                 Initialize Ralph in current directory
+  --help, -h             Show help
+```
 
 ### Getting the Task Template
 
 ```bash
 # Print template to stdout (pipe to file)
-./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/my-task.md
+./ralph --print-template > RALPH_TASK.md
+
+# Or to a plans directory
+./ralph --print-template > plans/my-task.md
 
 # Or copy to clipboard (macOS)
-./.cursor/ralph-scripts/init-ralph.sh --print-template | pbcopy
+./ralph --print-template | pbcopy
 ```
 
-### ralph-loop.sh Flags (for scripting/CI)
+### Examples
 
 ```bash
-./ralph-loop.sh [options] [workspace]
+# Run with default task file (RALPH_TASK.md)
+./ralph
 
-Options:
-  -n, --iterations N     Max iterations (default: 20)
-  -m, --model MODEL      Model to use (default: opus-4.5-thinking)
-  -f, --task-file FILE   Task/plan file path (BYO, falls back to RALPH_TASK.md)
-  -r, --run-id ID        Run ID for state isolation (default: derived from task file)
-  --branch NAME          Create and work on a new branch
-  --pr                   Open PR when complete (requires --branch)
-  -y, --yes              Skip confirmation prompt
-```
+# Run with custom plan file
+./ralph --task-file plans/api.md
 
-**Examples:**
+# Test single iteration before going AFK
+./ralph --once
 
-```bash
-# Run with your plan file (recommended)
-./ralph-loop.sh --task-file plans/api.md
+# Limit iterations
+./ralph --limit=10
 
 # Scripted PR workflow
-./ralph-loop.sh --task-file plans/api.md --branch feature/api --pr -y
+./ralph --task-file plans/api.md --branch feature/api --pr -y
 
-# Use a different model with more iterations
-./ralph-loop.sh --task-file plans/api.md -n 50 -m gpt-5.2-high
+# Use a different model
+./ralph --task-file plans/api.md --model gpt-5.2-high
 
 # Parallel runs with different tasks
-./ralph-loop.sh --task-file plans/api.md --run-id api -y &
-./ralph-loop.sh --task-file plans/ui.md --run-id ui -y &
+./ralph --task-file plans/api.md --run-id api -y &
+./ralph --task-file plans/ui.md --run-id ui -y &
 ```
 
 ### Environment Variables
@@ -453,8 +464,9 @@ Both are verified before declaring success.
 
 | File                                | Purpose                               | Who Uses It                              |
 | ----------------------------------- | ------------------------------------- | ---------------------------------------- |
-| `plans/*.md` (or any path)          | Task/plan files (BYO)                 | You define, pass via `--task-file`       |
-| `RALPH_TASK.md`                     | Legacy default task file (gitignored) | Fallback if no `--task-file`             |
+| `ralph`                             | Main entry point                      | You run this                             |
+| `RALPH_TASK.md`                     | Default task file (gitignored)        | Default if no `--task-file`              |
+| `plans/*.md` (or any path)          | Task/plan files (BYO)                 | Pass via `--task-file`                   |
 | `.ralph/guardrails.md`              | Lessons learned (Signs)               | Agent reads first, writes after failures |
 | `.ralph/runs/<runId>/progress.md`   | What's been accomplished              | Agent writes after work                  |
 | `.ralph/runs/<runId>/activity.log`  | Tool call log with token counts       | Parser writes, you monitor               |
@@ -510,48 +522,49 @@ Run `bd sync` manually to force synchronization.
 ### Basic (recommended)
 
 ```bash
-# Create your plan file
-./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/my-task.md
-# Edit plans/my-task.md...
+# Create your task file
+./ralph --print-template > RALPH_TASK.md
+# Edit RALPH_TASK.md...
 
-# Run with your plan
-./ralph-setup.sh --task-file plans/my-task.md
+# Run Ralph
+./ralph
 ```
 
 ### Human-in-the-loop (recommended for new tasks)
 
 ```bash
 # Test ONE iteration first
-./ralph-once.sh --task-file plans/my-task.md
+./ralph --once
 # Review changes...
 
 # Continue with full loop
-./ralph-setup.sh --task-file plans/my-task.md
+./ralph
 ```
 
 ### Parallel tasks
 
 ```bash
 # Run two different task files in parallel
-./ralph-loop.sh --task-file plans/api.md --run-id api -y &
-./ralph-loop.sh --task-file plans/ui.md --run-id ui -y &
+./ralph --task-file plans/api.md --run-id api -y &
+./ralph --task-file plans/ui.md --run-id ui -y &
 wait
 ```
 
 ### Scripted/CI
 
 ```bash
-./ralph-loop.sh --task-file plans/api.md --branch feature/api --pr -y
+./ralph --task-file plans/api.md --branch feature/api --pr -y
 ```
 
-### Legacy (RALPH_TASK.md)
+### Custom task file
 
 ```bash
-# If you have RALPH_TASK.md in the workspace root, you can omit --task-file
-./ralph-setup.sh
+# Create task file anywhere
+./ralph --print-template > plans/my-task.md
+# Edit plans/my-task.md...
 
-# Note: RALPH_TASK.md is gitignored by default
-# To version it, remove the RALPH_TASK.md line from .gitignore
+# Run with custom task file
+./ralph --task-file plans/my-task.md
 ```
 
 ## Learn More

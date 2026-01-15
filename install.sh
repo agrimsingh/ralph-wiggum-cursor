@@ -131,16 +131,14 @@ mkdir -p .ralph
 
 echo "📥 Downloading Ralph scripts..."
 
-SCRIPTS=(
+# Internal scripts (not user-facing)
+INTERNAL_SCRIPTS=(
+  "ralph"
   "ralph-common.sh"
-  "ralph-setup.sh"
-  "ralph-loop.sh"
-  "ralph-once.sh"
   "stream-parser.sh"
-  "init-ralph.sh"
 )
 
-for script in "${SCRIPTS[@]}"; do
+for script in "${INTERNAL_SCRIPTS[@]}"; do
   if curl -fsSL "$REPO_RAW/scripts/$script" -o ".cursor/ralph-scripts/$script" 2>/dev/null; then
     chmod +x ".cursor/ralph-scripts/$script"
   else
@@ -148,7 +146,16 @@ for script in "${SCRIPTS[@]}"; do
   fi
 done
 
-echo "✓ Scripts installed to .cursor/ralph-scripts/"
+echo "✓ Internal scripts installed to .cursor/ralph-scripts/"
+
+# Download root launcher
+echo "📥 Downloading ralph launcher..."
+if curl -fsSL "$REPO_RAW/ralph" -o "./ralph" 2>/dev/null; then
+  chmod +x "./ralph"
+  echo "✓ ralph installed to ./ralph"
+else
+  echo "   ⚠️  Could not download ralph launcher"
+fi
 
 
 # =============================================================================
@@ -246,11 +253,12 @@ fi
 
 echo "Files created:"
 echo ""
-echo "  📁 .cursor/ralph-scripts/"
-echo "     ├── ralph-setup.sh          - Main entry (interactive)"
-echo "     ├── ralph-loop.sh           - CLI mode (for scripting)"
-echo "     ├── ralph-once.sh           - Single iteration (testing)"
-echo "     └── ...                     - Other utilities"
+echo "  ./ralph                        - Main entry point"
+echo ""
+echo "  📁 .cursor/ralph-scripts/      - Internal scripts"
+echo "     ├── ralph                   - CLI implementation"
+echo "     ├── ralph-common.sh         - Shared functions"
+echo "     └── stream-parser.sh        - Token tracking"
 echo ""
 echo "  📁 .ralph/"
 echo "     └── guardrails.md           - Lessons learned (shared)"
@@ -265,28 +273,24 @@ echo ""
 echo "Next steps:"
 if [[ "$BEADS_MISSING" == "true" ]]; then
   echo "  1. Install Beads (see above)"
-  echo "  2. Create a task/plan file (see template below)"
-  echo "  3. Run: ./.cursor/ralph-scripts/ralph-setup.sh --task-file <your-plan.md>"
+  echo "  2. Create a task file:"
+  echo "     ./ralph --print-template > RALPH_TASK.md"
+  echo "  3. Run: ./ralph"
 else
-  echo "  1. Create a task/plan file (any path, e.g. plans/api.md)"
-  echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh --task-file <your-plan.md>"
+  echo "  1. Create a task file:"
+  echo "     ./ralph --print-template > RALPH_TASK.md"
+  echo "  2. Run: ./ralph"
 fi
 echo ""
-echo "Get the task template:"
-echo "  ./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/my-task.md"
-echo ""
-echo "Fallback: If RALPH_TASK.md exists, you can omit --task-file."
-echo ""
 echo "Examples:"
-echo "  # Single task"
-echo "  ./.cursor/ralph-scripts/ralph-setup.sh --task-file plans/api.md"
-echo ""
-echo "  # Parallel runs (different task files)"
-echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/api.md --run-id api"
-echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/ui.md --run-id ui"
+echo "  ./ralph                              # Run with RALPH_TASK.md"
+echo "  ./ralph --task-file plans/api.md    # Run with custom task file"
+echo "  ./ralph --once                       # Single iteration (testing)"
+echo "  ./ralph --limit=10                   # Max 10 iterations"
+echo "  ./ralph --print-template             # Print task template"
 echo ""
 echo "Monitor progress:"
-echo "  bd list --json                 # See all Beads tasks"
+echo "  bd list --json                       # See all Beads tasks"
 echo "  tail -f .ralph/runs/<runId>/activity.log"
 echo ""
 echo "Learn more:"
