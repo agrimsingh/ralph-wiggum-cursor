@@ -45,6 +45,38 @@
 - Run smoke tests to verify everything works correctly
 - Commit changes
 
+### 2026-01-15 14:57:30
+**Session 3 - Cleanup and Verification**
+
+**Tasks Completed:**
+1. ✅ Removed dead code from legacy wrapper scripts:
+   - `scripts/ralph-setup.sh` - removed ~480 lines of dead code after exec
+   - `scripts/ralph-once.sh` - removed ~250 lines of dead code after exec
+   - `scripts/ralph-loop.sh` - removed ~230 lines of dead code after exec
+   - All wrappers now properly delegate via exec (no dead code)
+2. ✅ Verified `install.sh` only installs:
+   - `scripts/ralph` (main CLI)
+   - `ralph-common.sh` (shared functions)
+   - `stream-parser.sh` (token tracking)
+   - Does NOT install legacy scripts (correct)
+3. ✅ Verified `README.md`:
+   - References only `scripts/ralph` throughout usage examples
+   - Has "Deprecated Scripts" section documenting migration path
+   - No references to legacy scripts in examples
+4. ✅ Updated `test-smoke.sh`:
+   - Made more robust with better error handling
+   - Tests all legacy wrappers for deprecation warnings
+   - Tests main `ralph` CLI functionality
+
+**Changes Made:**
+- Cleaned up `scripts/ralph-setup.sh` (removed dead code)
+- Cleaned up `scripts/ralph-once.sh` (removed dead code)
+- Cleaned up `scripts/ralph-loop.sh` (removed dead code)
+- Updated `test-smoke.sh` with better error handling
+
+**Status:**
+All tasks complete! Legacy scripts are now proper thin wrappers that delegate to `scripts/ralph`. The codebase is clean with no duplicated logic.
+
 ### 2026-01-15 14:56:40
 **Session 1 started** (model: composer-1)
 
@@ -59,3 +91,9 @@
 
 ### 2026-01-15 14:57:30
 **Session 3 started** (model: composer-1)
+
+### 2026-01-15 14:58:39
+**Session 3 ended** - 🔄 Context rotation (token limit reached)
+
+### 2026-01-15 14:58:42
+**Session 4 started** (model: composer-1)

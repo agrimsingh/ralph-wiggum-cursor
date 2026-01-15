@@ -9,13 +9,15 @@ cd "$SCRIPT_DIR"
 echo "Running smoke tests..."
 echo ""
 
+FAILED=0
+
 # Test 1: ralph --help works
 echo "Test 1: ralph --help"
 if bash scripts/ralph --help 2>&1 | grep -q "Ralph Wiggum"; then
   echo "✓ PASS"
 else
   echo "✗ FAIL"
-  exit 1
+  FAILED=1
 fi
 echo ""
 
@@ -25,44 +27,62 @@ if bash scripts/ralph template 2>&1 | grep -q "task:"; then
   echo "✓ PASS"
 else
   echo "✗ FAIL"
-  exit 1
+  FAILED=1
 fi
 echo ""
 
 # Test 3: Legacy wrappers print deprecation warnings
 echo "Test 3: Legacy wrappers print deprecation warnings"
-# Test that deprecation warning appears in stderr (before exec)
-output=$(bash scripts/ralph-setup.sh --help 2>&1 | head -5)
-if echo "$output" | grep -q "deprecated"; then
-  echo "✓ PASS (ralph-setup.sh)"
+
+# Test ralph-setup.sh
+echo "  Testing ralph-setup.sh..."
+output=$(bash scripts/ralph-setup.sh --help 2>&1 || true)
+if echo "$output" | head -5 | grep -q "deprecated"; then
+  echo "  ✓ PASS (ralph-setup.sh)"
 else
-  echo "✗ FAIL (ralph-setup.sh) - output: $output"
-  exit 1
+  echo "  ✗ FAIL (ralph-setup.sh)"
+  echo "    Output: $(echo "$output" | head -5)"
+  FAILED=1
 fi
 
-output=$(bash scripts/ralph-once.sh --help 2>&1 | head -5)
-if echo "$output" | grep -q "deprecated"; then
-  echo "✓ PASS (ralph-once.sh)"
+# Test ralph-once.sh
+echo "  Testing ralph-once.sh..."
+output=$(bash scripts/ralph-once.sh --help 2>&1 || true)
+if echo "$output" | head -5 | grep -q "deprecated"; then
+  echo "  ✓ PASS (ralph-once.sh)"
 else
-  echo "✗ FAIL (ralph-once.sh) - output: $output"
-  exit 1
+  echo "  ✗ FAIL (ralph-once.sh)"
+  echo "    Output: $(echo "$output" | head -5)"
+  FAILED=1
 fi
 
-output=$(bash scripts/ralph-loop.sh --help 2>&1 | head -5)
-if echo "$output" | grep -q "deprecated"; then
-  echo "✓ PASS (ralph-loop.sh)"
+# Test ralph-loop.sh
+echo "  Testing ralph-loop.sh..."
+output=$(bash scripts/ralph-loop.sh --help 2>&1 || true)
+if echo "$output" | head -5 | grep -q "deprecated"; then
+  echo "  ✓ PASS (ralph-loop.sh)"
 else
-  echo "✗ FAIL (ralph-loop.sh) - output: $output"
-  exit 1
+  echo "  ✗ FAIL (ralph-loop.sh)"
+  echo "    Output: $(echo "$output" | head -5)"
+  FAILED=1
 fi
 
-output=$(bash scripts/init-ralph.sh --print-template 2>&1 | head -5)
-if echo "$output" | grep -q "deprecated"; then
-  echo "✓ PASS (init-ralph.sh --print-template)"
+# Test init-ralph.sh --print-template
+echo "  Testing init-ralph.sh --print-template..."
+output=$(bash scripts/init-ralph.sh --print-template 2>&1 || true)
+if echo "$output" | head -5 | grep -q "deprecated"; then
+  echo "  ✓ PASS (init-ralph.sh --print-template)"
 else
-  echo "✗ FAIL (init-ralph.sh --print-template) - output: $output"
-  exit 1
+  echo "  ✗ FAIL (init-ralph.sh --print-template)"
+  echo "    Output: $(echo "$output" | head -5)"
+  FAILED=1
 fi
 echo ""
 
-echo "All smoke tests passed! ✓"
+if [[ $FAILED -eq 0 ]]; then
+  echo "All smoke tests passed! ✓"
+  exit 0
+else
+  echo "Some smoke tests failed. See output above."
+  exit 1
+fi
