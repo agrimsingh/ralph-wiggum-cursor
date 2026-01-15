@@ -1,10 +1,6 @@
 ---
 task: [Brief description of the task]
-completion_criteria:
-  - [Criterion 1 - must be objectively verifiable]
-  - [Criterion 2]
-  - [Criterion 3]
-max_iterations: 50
+test_command: "npm test"
 ---
 
 # Task: [Task Name]
@@ -33,11 +29,12 @@ max_iterations: 50
 
 ## Success Criteria
 
-The task is complete when ALL of the following are true:
+The following will be converted to Beads tasks when Ralph first runs.
+Progress is tracked via `bd ready`, `bd close`, etc.
 
-1. [ ] [Verifiable criterion 1]
-2. [ ] [Verifiable criterion 2]
-3. [ ] [Verifiable criterion 3]
+1. [Verifiable criterion 1]
+2. [Verifiable criterion 2]
+3. [Verifiable criterion 3]
 
 ## Notes
 
@@ -49,10 +46,14 @@ The task is complete when ALL of the following are true:
 
 When working on this task:
 
-1. Read `.ralph/progress.md` to see what's been done
-2. Check `.ralph/guardrails.md` for signs to follow
-3. Work on the next incomplete criterion
-4. Update `.ralph/progress.md` with your progress
-5. Commit your changes with descriptive messages
-6. When ALL criteria are met (all `[ ]` → `[x]`), output: `<ralph>COMPLETE</ralph>`
-7. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`
+1. Check `bd ready --label ralph:<runId> --json` to find the next available task
+2. Claim it: `bd update <id> --status in_progress --json`
+3. Work on the task
+4. Close when done: `bd close <id> --reason "description" --json`
+5. Sync: `bd sync`
+6. Read `.ralph/runs/<runId>/progress.md` to see what's been done
+7. Check `.ralph/guardrails.md` for signs to follow
+8. Update `.ralph/runs/<runId>/progress.md` with your progress
+9. Commit your changes with descriptive messages
+10. When all tasks are closed, output: `<ralph>COMPLETE</ralph>`
+11. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`

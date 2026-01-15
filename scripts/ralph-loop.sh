@@ -12,19 +12,28 @@
 #   ./ralph-loop.sh -n 50 -m gpt-5.2-high        # Custom iterations and model
 #   ./ralph-loop.sh --branch feature/foo --pr   # Create branch and PR
 #   ./ralph-loop.sh -y                           # Skip confirmation (for scripting)
+#   ./ralph-loop.sh --task-file TASK_A.md        # Use different task file
+#   ./ralph-loop.sh --run-id myrun               # Use specific run ID
 #
 # Flags:
 #   -n, --iterations N     Max iterations (default: 20)
 #   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+#   -f, --task-file FILE   Task file to use (default: RALPH_TASK.md)
+#   -r, --run-id ID        Run ID for state isolation (default: derived from task file)
 #   --branch NAME          Create and work on a new branch
 #   --pr                   Open PR when complete (requires --branch)
 #   -y, --yes              Skip confirmation prompt
 #   -h, --help             Show this help
 #
+# Environment:
+#   RALPH_TASK_FILE        Override default task file (same as -f flag)
+#   RALPH_RUN_ID           Override run ID (same as -r flag)
+#
 # Requirements:
-#   - RALPH_TASK.md in the project root
+#   - Task file (default: RALPH_TASK.md) in the project root
 #   - Git repository
 #   - cursor-agent CLI installed
+#   - bd (Beads) CLI installed and initialized
 
 set -euo pipefail
 
@@ -47,6 +56,8 @@ Usage:
 Options:
   -n, --iterations N     Max iterations (default: 20)
   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -f, --task-file FILE   Task file to use (default: RALPH_TASK.md)
+  -r, --run-id ID        Run ID for state isolation (default: derived from task file)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -57,9 +68,13 @@ Examples:
   ./ralph-loop.sh -n 50                              # 50 iterations max
   ./ralph-loop.sh -m gpt-5.2-high                    # Use GPT model
   ./ralph-loop.sh --branch feature/api --pr -y      # Scripted PR workflow
+  ./ralph-loop.sh --task-file TASK_A.md --run-id a  # Parallel run A
+  ./ralph-loop.sh --task-file TASK_B.md --run-id b  # Parallel run B
   
 Environment:
   RALPH_MODEL            Override default model (same as -m flag)
+  RALPH_TASK_FILE        Override default task file (same as -f flag)
+  RALPH_RUN_ID           Override run ID (same as -r flag)
 
 For interactive setup with a beautiful UI, use ralph-setup.sh instead.
 EOF
@@ -76,6 +91,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     -m|--model)
       MODEL="$2"
+      shift 2
+      ;;
+    -f|--task-file)
+      TASK_FILE="$2"
+      shift 2
+      ;;
+    -r|--run-id)
+      RUN_ID="$2"
       shift 2
       ;;
     --branch)
@@ -121,13 +144,25 @@ main() {
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
   fi
   
-  local task_file="$WORKSPACE/RALPH_TASK.md"
+  # Resolve task file
+  local task_file
+  task_file=$(resolve_task_file "$WORKSPACE" "$TASK_FILE")
+  
+  # Derive or use provided run ID
+  local run_id="${RUN_ID:-}"
+  if [[ -z "$run_id" ]]; then
+    run_id=$(derive_run_id "$task_file" "$WORKSPACE")
+  fi
+  
+  # Get run directory
+  local run_dir
+  run_dir=$(get_run_dir "$WORKSPACE" "$run_id")
   
   # Show banner
   show_banner
   
   # Check prerequisites
-  if ! check_prerequisites "$WORKSPACE"; then
+  if ! check_prerequisites "$WORKSPACE" "$task_file"; then
     exit 1
   fi
   
@@ -138,11 +173,21 @@ main() {
     exit 1
   fi
   
-  # Initialize .ralph directory
-  init_ralph_dir "$WORKSPACE"
+  # Initialize run directory
+  init_run_dir "$run_dir"
   
-  echo "Workspace: $WORKSPACE"
-  echo "Task:      $task_file"
+  # Initialize shared guardrails
+  init_guardrails "$WORKSPACE"
+  
+  # Bootstrap Beads issues if not already done
+  if ! is_beads_initialized "$run_dir"; then
+    bootstrap_beads_from_task_md "$WORKSPACE" "$task_file" "$run_dir" "$run_id"
+  fi
+  
+  echo "Workspace:  $WORKSPACE"
+  echo "Task file:  $task_file"
+  echo "Run ID:     $run_id"
+  echo "Run dir:    $run_dir"
   echo ""
   
   # Show task summary
@@ -152,14 +197,14 @@ main() {
   echo "─────────────────────────────────────────────────────────────────"
   echo ""
   
-  # Count criteria
-  local total_criteria done_criteria remaining
-  # Only count actual checkbox list items (- [ ], * [x], 1. [ ], etc.)
-  total_criteria=$(grep -cE '^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]+\[(x| )\]' "$task_file" 2>/dev/null) || total_criteria=0
-  done_criteria=$(grep -cE '^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]+\[x\]' "$task_file" 2>/dev/null) || done_criteria=0
-  remaining=$((total_criteria - done_criteria))
+  # Count criteria via Beads
+  local counts
+  counts=$(count_criteria "$run_dir")
+  local done_criteria="${counts%%:*}"
+  local total_criteria="${counts##*:}"
+  local remaining=$((total_criteria - done_criteria))
   
-  echo "Progress: $done_criteria / $total_criteria criteria complete ($remaining remaining)"
+  echo "Progress: $done_criteria / $total_criteria tasks complete ($remaining remaining)"
   echo "Model:    $MODEL"
   echo "Max iter: $MAX_ITERATIONS"
   [[ -n "$USE_BRANCH" ]] && echo "Branch:   $USE_BRANCH"
@@ -167,7 +212,7 @@ main() {
   echo ""
   
   if [[ "$remaining" -eq 0 ]] && [[ "$total_criteria" -gt 0 ]]; then
-    echo "🎉 Task already complete! All criteria are checked."
+    echo "🎉 Task already complete! All Beads tasks are closed."
     exit 0
   fi
   
@@ -189,7 +234,7 @@ main() {
   fi
   
   # Run the loop
-  run_ralph_loop "$WORKSPACE" "$SCRIPT_DIR"
+  run_ralph_loop "$WORKSPACE" "$SCRIPT_DIR" "$task_file" "$run_dir"
   exit $?
 }
 

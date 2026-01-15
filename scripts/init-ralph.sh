@@ -1,6 +1,6 @@
 #!/bin/bash
 # Ralph Wiggum: Initialize Ralph in a project
-# Sets up Ralph tracking for CLI mode
+# Sets up Ralph tracking for CLI mode with Beads task tracking
 
 set -euo pipefail
 
@@ -11,6 +11,9 @@ echo "════════════════════════�
 echo "🐛 Ralph Wiggum Initialization"
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
+
+# Track missing dependencies
+BEADS_MISSING=false
 
 # Check if we're in a git repo
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -30,6 +33,45 @@ if ! command -v cursor-agent &> /dev/null; then
   echo "   Install via: curl https://cursor.com/install -fsS | bash"
   echo ""
 fi
+
+# =============================================================================
+# CHECK FOR BEADS (REQUIRED)
+# =============================================================================
+
+if ! command -v bd &> /dev/null; then
+  BEADS_MISSING=true
+  echo "❌ bd (Beads) CLI not found - REQUIRED"
+  echo ""
+  echo "   Ralph uses Beads for task tracking. Install via one of:"
+  echo ""
+  echo "   # Option 1: curl installer (recommended)"
+  echo "   curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash"
+  echo ""
+  echo "   # Option 2: Homebrew (macOS/Linux)"
+  echo "   brew install steveyegge/beads/bd"
+  echo ""
+  echo "   # Option 3: npm"
+  echo "   npm install -g @beads/bd"
+  echo ""
+  echo "   After installing, run: bd init --stealth --quiet"
+  echo ""
+else
+  echo "✓ bd (Beads) CLI found"
+  
+  # Initialize Beads in stealth mode if not already initialized
+  if ! bd info --json &>/dev/null 2>&1; then
+    echo "📦 Initializing Beads in stealth mode..."
+    if bd init --stealth --quiet 2>/dev/null; then
+      echo "✓ Beads initialized (stealth mode - no repo commits)"
+    else
+      echo "⚠️  Could not initialize Beads automatically."
+      echo "   Run manually: bd init --stealth --quiet"
+    fi
+  else
+    echo "✓ Beads already initialized"
+  fi
+fi
+echo ""
 
 # Create directories
 mkdir -p .ralph
@@ -56,13 +98,22 @@ Describe what you want to accomplish.
 
 ## Success Criteria
 
-1. [ ] First thing to complete
-2. [ ] Second thing to complete
-3. [ ] Third thing to complete
+The following will be converted to Beads tasks when you first run Ralph:
+
+1. First thing to complete
+2. Second thing to complete
+3. Third thing to complete
 
 ## Context
 
 Any additional context the agent should know.
+
+## Notes
+
+- This task file defines the work to be done
+- When Ralph runs, it creates Beads issues from Success Criteria
+- Progress is tracked via Beads (`bd list`, `bd ready`, etc.)
+- Each run gets isolated state in `.ralph/runs/<runId>/`
 EOF
   fi
   echo "   Edit RALPH_TASK.md to define your task."
@@ -71,12 +122,15 @@ else
 fi
 
 # =============================================================================
-# INITIALIZE STATE FILES
+# INITIALIZE STATE FILES (shared guardrails only)
 # =============================================================================
 
 echo "📁 Initializing .ralph/ directory..."
 
-cat > .ralph/guardrails.md << 'EOF'
+# Only create guardrails.md at the top level (shared across runs)
+# Per-run state is created in .ralph/runs/<runId>/ on first run
+if [[ ! -f ".ralph/guardrails.md" ]]; then
+  cat > .ralph/guardrails.md << 'EOF'
 # Ralph Guardrails (Signs)
 
 > Lessons learned from past failures. READ THESE BEFORE ACTING.
@@ -105,42 +159,9 @@ cat > .ralph/guardrails.md << 'EOF'
 (Signs added from observed failures will appear below)
 
 EOF
+fi
 
-cat > .ralph/progress.md << 'EOF'
-# Progress Log
-
-> Updated by the agent after significant work.
-
-## Summary
-
-- Iterations completed: 0
-- Current status: Initialized
-
-## How This Works
-
-Progress is tracked in THIS FILE, not in LLM context.
-When context is rotated (fresh agent), the new agent reads this file.
-This is how Ralph maintains continuity across iterations.
-
-## Session History
-
-EOF
-
-cat > .ralph/errors.log << 'EOF'
-# Error Log
-
-> Failures detected by stream-parser. Use to update guardrails.
-
-EOF
-
-cat > .ralph/activity.log << 'EOF'
-# Activity Log
-
-> Real-time tool call logging from stream-parser.
-
-EOF
-
-echo "0" > .ralph/.iteration
+echo "✓ .ralph/ initialized"
 
 # =============================================================================
 # INSTALL SCRIPTS
@@ -180,23 +201,54 @@ fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
-echo "✅ Ralph initialized!"
+if [[ "$BEADS_MISSING" == "true" ]]; then
+  echo "⚠️  Ralph initialized (with warnings)"
+else
+  echo "✅ Ralph initialized!"
+fi
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
+
+if [[ "$BEADS_MISSING" == "true" ]]; then
+  echo "⚠️  IMPORTANT: Beads (bd) is required but not installed!"
+  echo ""
+  echo "   Install Beads first:"
+  echo "   curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash"
+  echo ""
+  echo "   Then initialize: bd init --stealth --quiet"
+  echo ""
+fi
+
 echo "Files created:"
-echo "  • RALPH_TASK.md        - Define your task here"
-echo "  • .ralph/guardrails.md - Lessons learned (agent updates this)"
-echo "  • .ralph/progress.md   - Progress log (agent updates this)"
-echo "  • .ralph/activity.log  - Tool call log (parser updates this)"
-echo "  • .ralph/errors.log    - Failure log (parser updates this)"
+echo "  • RALPH_TASK.md           - Define your task here"
+echo "  • .ralph/guardrails.md    - Lessons learned (shared across runs)"
+echo ""
+echo "Per-run files (created on first run):"
+echo "  • .ralph/runs/<runId>/progress.md    - Progress log"
+echo "  • .ralph/runs/<runId>/activity.log   - Tool call log"
+echo "  • .ralph/runs/<runId>/errors.log     - Failure log"
+echo "  • .ralph/runs/<runId>/beads.label    - Beads label"
+echo "  • .ralph/runs/<runId>/beads.root_id  - Root epic ID"
 echo ""
 echo "Next steps:"
-echo "  1. Edit RALPH_TASK.md to define your task and criteria"
-echo "  2. Run: ./scripts/ralph-loop.sh"
-echo "     (or: .cursor/ralph-scripts/ralph-loop.sh)"
+if [[ "$BEADS_MISSING" == "true" ]]; then
+  echo "  1. Install Beads (see above)"
+  echo "  2. Edit RALPH_TASK.md to define your task and criteria"
+  echo "  3. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+else
+  echo "  1. Edit RALPH_TASK.md to define your task and criteria"
+  echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+fi
 echo ""
-echo "The agent will work autonomously, rotating context as needed."
-echo "Monitor progress: tail -f .ralph/activity.log"
+echo "Parallel runs (different task files):"
+echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_A.md --run-id a"
+echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_B.md --run-id b"
 echo ""
-echo "Learn more: https://ghuntley.com/ralph/"
+echo "Monitor progress:"
+echo "  bd list --json                                # See all Beads tasks"
+echo "  tail -f .ralph/runs/<runId>/activity.log     # Real-time logs"
+echo ""
+echo "Learn more:"
+echo "  Ralph: https://ghuntley.com/ralph/"
+echo "  Beads: https://github.com/steveyegge/beads"
 echo "═══════════════════════════════════════════════════════════════════"

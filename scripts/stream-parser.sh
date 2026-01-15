@@ -2,10 +2,14 @@
 # Ralph Wiggum: Stream Parser
 #
 # Parses cursor-agent stream-json output in real-time.
-# Tracks token usage, detects failures/gutter, writes to .ralph/ logs.
+# Tracks token usage, detects failures/gutter, writes to per-run state directory.
 #
 # Usage:
-#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
+#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace /path/to/run_dir
+#
+# Arguments:
+#   $1 - workspace: path to the workspace root
+#   $2 - run_dir: path to the per-run state directory (.ralph/runs/<runId>/)
 #
 # Outputs to stdout:
 #   - ROTATE when threshold hit (80k tokens)
@@ -13,17 +17,17 @@
 #   - GUTTER when stuck pattern detected
 #   - COMPLETE when agent outputs <ralph>COMPLETE</ralph>
 #
-# Writes to .ralph/:
+# Writes to run_dir:
 #   - activity.log: all operations with context health
 #   - errors.log: failures and gutter detection
 
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
-RALPH_DIR="$WORKSPACE/.ralph"
+RUN_DIR="${2:-$WORKSPACE/.ralph}"
 
-# Ensure .ralph directory exists
-mkdir -p "$RALPH_DIR"
+# Ensure run directory exists
+mkdir -p "$RUN_DIR"
 
 # Thresholds
 WARN_THRESHOLD=70000
@@ -65,22 +69,22 @@ calc_tokens() {
   echo $((total_bytes / 4))
 }
 
-# Log to activity.log
+# Log to activity.log in run directory
 log_activity() {
   local message="$1"
   local timestamp=$(date '+%H:%M:%S')
   local tokens=$(calc_tokens)
   local emoji=$(get_health_emoji $tokens)
   
-  echo "[$timestamp] $emoji $message" >> "$RALPH_DIR/activity.log"
+  echo "[$timestamp] $emoji $message" >> "$RUN_DIR/activity.log"
 }
 
-# Log to errors.log
+# Log to errors.log in run directory
 log_error() {
   local message="$1"
   local timestamp=$(date '+%H:%M:%S')
   
-  echo "[$timestamp] $message" >> "$RALPH_DIR/errors.log"
+  echo "[$timestamp] $message" >> "$RUN_DIR/errors.log"
 }
 
 # Check and log token status
@@ -99,7 +103,7 @@ log_token_status() {
   fi
   
   local breakdown="[read:$((BYTES_READ/1024))KB write:$((BYTES_WRITTEN/1024))KB assist:$((ASSISTANT_CHARS/1024))KB shell:$((SHELL_OUTPUT_CHARS/1024))KB]"
-  echo "[$timestamp] $emoji $status_msg $breakdown" >> "$RALPH_DIR/activity.log"
+  echo "[$timestamp] $emoji $status_msg $breakdown" >> "$RUN_DIR/activity.log"
 }
 
 # Check for gutter conditions
@@ -277,10 +281,10 @@ process_line() {
 # Main loop: read JSON lines from stdin
 main() {
   # Initialize activity log for this session
-  echo "" >> "$RALPH_DIR/activity.log"
-  echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
-  echo "Ralph Session Started: $(date)" >> "$RALPH_DIR/activity.log"
-  echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
+  echo "" >> "$RUN_DIR/activity.log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$RUN_DIR/activity.log"
+  echo "Ralph Session Started: $(date)" >> "$RUN_DIR/activity.log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$RUN_DIR/activity.log"
   
   # Track last token log time
   local last_token_log=$(date +%s)

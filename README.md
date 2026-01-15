@@ -12,7 +12,7 @@ Ralph is a technique for autonomous AI development that treats LLM context like 
 while :; do cat PROMPT.md | agent ; done
 ```
 
-The same prompt is fed repeatedly to an AI agent. Progress persists in **files and git**, not in the LLM's context window. When context fills up, you get a fresh agent with fresh context.
+The same prompt is fed repeatedly to an AI agent. Progress persists in **files, git, and [Beads](https://github.com/steveyegge/beads)**, not in the LLM's context window. When context fills up, you get a fresh agent with fresh context.
 
 ### The malloc/free Problem
 
@@ -30,7 +30,7 @@ This creates two problems:
 1. **Context pollution** - Failed attempts, unrelated code, and mixed concerns accumulate and confuse the model
 2. **The gutter** - Once polluted, the model keeps referencing bad context. Like a bowling ball in the gutter, there's no saving it.
 
-**Ralph's solution:** Deliberately rotate to fresh context before pollution builds up. State lives in files and git, not in the LLM's memory.
+**Ralph's solution:** Deliberately rotate to fresh context before pollution builds up. State lives in files, git, and Beads — not in the LLM's memory.
 
 ## Architecture
 
@@ -54,22 +54,28 @@ This creates two problems:
 │                      │        │                              │
 │     ┌────────────────┴────────┴────────────────┐            │
 │     ▼                                           ▼            │
-│  .ralph/                                    Signals          │
-│  ├── activity.log  (tool calls)            ├── WARN at 70k  │
-│  ├── errors.log    (failures)              ├── ROTATE at 80k│
-│  ├── progress.md   (agent writes)          ├── COMPLETE     │
-│  └── guardrails.md (lessons learned)       └── GUTTER       │
+│  Per-run state (.ralph/runs/<runId>/)       Signals          │
+│  ├── activity.log  (tool calls)             ├── WARN at 70k │
+│  ├── errors.log    (failures)               ├── ROTATE at 80k│
+│  ├── progress.md   (agent writes)           ├── COMPLETE    │
+│  ├── beads.label   (task label)             └── GUTTER      │
+│  └── beads.root_id (epic ID)                                │
 │                                                              │
+│  Shared: .ralph/guardrails.md (lessons learned)             │
+│                                                              │
+│  Progress tracked via Beads (bd) not checkboxes             │
 │  When ROTATE → fresh context, continue from git             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Key features:**
+- **Beads-backed task tracking** - Success criteria become Beads issues, completion via `bd close`
 - **Interactive setup** - Beautiful gum-based UI for model selection and options
 - **Accurate token tracking** - Parser counts actual bytes from every file read/write
 - **Gutter detection** - Detects when agent is stuck (same command failed 3x, file thrashing)
 - **Learning from failures** - Agent updates `.ralph/guardrails.md` with lessons
 - **State in git** - Commits frequently so next agent picks up from git history
+- **Parallel runs** - Multiple task files can run concurrently with isolated state
 - **Branch/PR workflow** - Optionally work on a branch and open PR when complete
 
 ## Prerequisites
@@ -77,8 +83,30 @@ This creates two problems:
 | Requirement | Check | How to Set Up |
 |-------------|-------|---------------|
 | **Git repo** | `git status` works | `git init` |
+| **bd (Beads)** | `which bd` | See [Beads install](#install-beads) |
 | **cursor-agent CLI** | `which cursor-agent` | `curl https://cursor.com/install -fsS \| bash` |
 | **gum** (optional) | `which gum` | Installer offers to install, or `brew install gum` |
+
+### Install Beads
+
+Ralph uses [Beads](https://github.com/steveyegge/beads) for task tracking. Install it first:
+
+```bash
+# Option 1: curl installer (recommended)
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+
+# Option 2: Homebrew (macOS/Linux)
+brew install steveyegge/beads/bd
+
+# Option 3: npm
+npm install -g @beads/bd
+```
+
+Then initialize Beads in your project (the installer does this automatically):
+
+```bash
+bd init --stealth --quiet
+```
 
 ## Quick Start
 
@@ -99,11 +127,14 @@ your-project/
 │   ├── stream-parser.sh        # Token tracking
 │   ├── ralph-common.sh         # Shared functions
 │   └── init-ralph.sh           # Re-initialize if needed
-├── .ralph/                     # State files (tracked in git)
-│   ├── progress.md             # Agent updates: what's done
-│   ├── guardrails.md           # Lessons learned (Signs)
-│   ├── activity.log            # Tool call log (parser writes)
-│   └── errors.log              # Failure log (parser writes)
+├── .ralph/                     # State files
+│   ├── guardrails.md           # Lessons learned (shared)
+│   └── runs/<runId>/           # Per-run state (created on first run)
+│       ├── progress.md         # What's been done
+│       ├── activity.log        # Tool call log
+│       ├── errors.log          # Failure log
+│       ├── beads.label         # Beads label for this run
+│       └── beads.root_id       # Root epic ID
 └── RALPH_TASK.md               # Your task definition
 ```
 
@@ -113,26 +144,7 @@ The installer will offer to install gum automatically. You can also:
 - Skip the prompt and auto-install: `curl ... | INSTALL_GUM=1 bash`
 - Install manually: `brew install gum` (macOS) or see [gum installation](https://github.com/charmbracelet/gum#installation)
 
-With gum, you get a beautiful interactive menu for selecting models and options:
-
-```
-? Select model:
-  ◉ opus-4.5-thinking
-  ◯ sonnet-4.5-thinking
-  ◯ gpt-5.2-high
-  ◯ composer-1
-  ◯ Custom...
-
-? Max iterations: 20
-
-? Options:
-  ◯ Commit to current branch
-  ◯ Run single iteration first
-  ◯ Work on new branch
-  ◯ Open PR when complete
-```
-
-Without gum, Ralph falls back to simple numbered prompts.
+With gum, you get a beautiful interactive menu for selecting models and options.
 
 ### 3. Define Your Task
 
@@ -150,10 +162,12 @@ Build a REST API with user management.
 
 ## Success Criteria
 
-1. [ ] GET /health returns 200
-2. [ ] POST /users creates a user  
-3. [ ] GET /users/:id returns user
-4. [ ] All tests pass
+The following will be converted to Beads tasks when you first run Ralph:
+
+1. GET /health returns 200
+2. POST /users creates a user  
+3. GET /users/:id returns user
+4. All tests pass
 
 ## Context
 
@@ -161,7 +175,7 @@ Build a REST API with user management.
 - Store users in memory (no database needed)
 ```
 
-**Important:** Use `[ ]` checkboxes. Ralph tracks completion by counting unchecked boxes.
+**Note:** Ralph converts your Success Criteria into Beads issues automatically. No checkboxes needed — progress is tracked via `bd ready`, `bd close`, etc.
 
 ### 4. Start the Loop
 
@@ -170,28 +184,49 @@ Build a REST API with user management.
 ```
 
 Ralph will:
-1. Show interactive UI for model and options (or simple prompts if gum not installed)
-2. Run `cursor-agent` with your task
-3. Parse output in real-time, tracking token usage
-4. At 70k tokens: warn agent to wrap up current work
-5. At 80k tokens: rotate to fresh context
-6. Repeat until all `[ ]` are `[x]` (or max iterations reached)
+1. Bootstrap Beads issues from your Success Criteria (first run only)
+2. Show interactive UI for model and options (or simple prompts if gum not installed)
+3. Run `cursor-agent` with your task
+4. Agent works via `bd ready` → `bd update --status in_progress` → `bd close`
+5. At 70k tokens: warn agent to wrap up current work
+6. At 80k tokens: rotate to fresh context
+7. Repeat until all Beads tasks are closed (or max iterations reached)
 
 ### 5. Monitor Progress
 
 ```bash
+# See all Beads tasks for this run
+bd list --label ralph:<runId> --json
+
 # Watch activity in real-time
-tail -f .ralph/activity.log
+tail -f .ralph/runs/<runId>/activity.log
 
 # Example output:
 # [12:34:56] 🟢 READ src/index.ts (245 lines, ~24.5KB)
 # [12:34:58] 🟢 WRITE src/routes/users.ts (50 lines, 2.1KB)
 # [12:35:01] 🟢 SHELL npm test → exit 0
-# [12:35:10] 🟢 TOKENS: 45,230 / 80,000 (56%) [read:30KB write:5KB assist:10KB shell:0KB]
+# [12:35:10] 🟢 TOKENS: 45,230 / 80,000 (56%)
 
 # Check for failures
-cat .ralph/errors.log
+cat .ralph/runs/<runId>/errors.log
 ```
+
+## Parallel Runs
+
+You can run multiple Ralph loops in parallel with different task files:
+
+```bash
+# Terminal 1: Work on API
+./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_API.md --run-id api
+
+# Terminal 2: Work on UI
+./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_UI.md --run-id ui
+```
+
+Each run gets:
+- Its own state directory: `.ralph/runs/<runId>/`
+- Its own Beads label: `ralph:<runId>`
+- Its own root epic with child tasks
 
 ## Commands
 
@@ -210,6 +245,8 @@ cat .ralph/errors.log
 Options:
   -n, --iterations N     Max iterations (default: 20)
   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -f, --task-file FILE   Task file to use (default: RALPH_TASK.md)
+  -r, --run-id ID        Run ID for state isolation (default: derived from task file)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -223,6 +260,19 @@ Options:
 
 # Use a different model with more iterations
 ./ralph-loop.sh -n 50 -m gpt-5.2-high
+
+# Parallel runs with different tasks
+./ralph-loop.sh --task-file TASK_A.md --run-id a &
+./ralph-loop.sh --task-file TASK_B.md --run-id b &
+```
+
+### Environment Variables
+
+```bash
+RALPH_MODEL=gpt-5.2-high        # Override default model
+RALPH_TASK_FILE=TASK_A.md       # Override default task file
+RALPH_RUN_ID=myrun              # Override run ID
+MAX_ITERATIONS=50               # Override max iterations
 ```
 
 ## How It Works
@@ -235,34 +285,56 @@ Iteration 1                    Iteration 2                    Iteration N
 │ Fresh context    │          │ Fresh context    │          │ Fresh context    │
 │       │          │          │       │          │          │       │          │
 │       ▼          │          │       ▼          │          │       ▼          │
-│ Read RALPH_TASK  │          │ Read RALPH_TASK  │          │ Read RALPH_TASK  │
+│ Read task file   │          │ Read task file   │          │ Read task file   │
 │ Read guardrails  │──────────│ Read guardrails  │──────────│ Read guardrails  │
 │ Read progress    │  (state  │ Read progress    │  (state  │ Read progress    │
 │       │          │  in git) │       │          │  in git) │       │          │
 │       ▼          │          │       ▼          │          │       ▼          │
-│ Work on criteria │          │ Work on criteria │          │ Work on criteria │
+│ bd ready → work  │          │ bd ready → work  │          │ bd ready → work  │
+│ bd close tasks   │          │ bd close tasks   │          │ bd close tasks   │
 │ Commit to git    │          │ Commit to git    │          │ Commit to git    │
 │       │          │          │       │          │          │       │          │
 │       ▼          │          │       ▼          │          │       ▼          │
-│ 80k tokens       │          │ 80k tokens       │          │ All [x] done!    │
+│ 80k tokens       │          │ 80k tokens       │          │ All tasks closed!│
 │ ROTATE ──────────┼──────────┼──────────────────┼──────────┼──► COMPLETE      │
 └──────────────────┘          └──────────────────┘          └──────────────────┘
 ```
 
 Each iteration:
 1. Reads task and state from files (not from previous context)
-2. Works on unchecked criteria
-3. Commits progress to git
-4. Updates `.ralph/progress.md` and `.ralph/guardrails.md`
-5. Rotates when context is full
+2. Uses `bd ready` to find next available task
+3. Claims task with `bd update --status in_progress`
+4. Works on the task
+5. Closes task with `bd close --reason "..."`
+6. Commits progress to git
+7. Runs `bd sync` to persist Beads state
+8. Rotates when context is full
+
+### Beads Task Flow
+
+```bash
+# Find next task to work on
+bd ready --label ralph:myrun --json
+
+# Claim the task
+bd update <task-id> --status in_progress --json
+
+# ... do the work ...
+
+# Mark complete
+bd close <task-id> --reason "Implemented health endpoint" --json
+
+# Sync to persist
+bd sync
+```
 
 ### Git Protocol
 
 The agent is instructed to commit frequently:
 
 ```bash
-# After each criterion
-git add -A && git commit -m 'ralph: [criterion] - description'
+# After each task
+git add -A && git commit -m 'ralph: implement health endpoint'
 
 # Push periodically
 git push
@@ -283,10 +355,6 @@ When something fails, the agent adds a "Sign" to `.ralph/guardrails.md`:
 
 Future iterations read guardrails first and follow them, preventing repeated mistakes.
 
-```
-Error occurs → errors.log → Agent analyzes → Updates guardrails.md → Future agents follow
-```
-
 ## Context Health Indicators
 
 The activity log shows context health with emoji:
@@ -296,13 +364,6 @@ The activity log shows context health with emoji:
 | 🟢 | Healthy | < 60% | Plenty of room |
 | 🟡 | Warning | 60-80% | Approaching limit |
 | 🔴 | Critical | > 80% | Rotation imminent |
-
-Example:
-```
-[12:34:56] 🟢 READ src/index.ts (245 lines, ~24.5KB)
-[12:40:22] 🟡 TOKENS: 58,000 / 80,000 (72%) - approaching limit [read:40KB write:8KB assist:10KB shell:0KB]
-[12:45:33] 🔴 TOKENS: 72,500 / 80,000 (90%) - rotation imminent
-```
 
 ## Gutter Detection
 
@@ -315,16 +376,16 @@ The parser detects when the agent is stuck:
 | Agent signals | Agent outputs `<ralph>GUTTER</ralph>` | GUTTER signal |
 
 When gutter is detected:
-1. Check `.ralph/errors.log` for the pattern
+1. Check `.ralph/runs/<runId>/errors.log` for the pattern
 2. Fix the issue manually or add a guardrail
 3. Re-run the loop
 
 ## Completion Detection
 
-Ralph detects completion in two ways:
+Ralph detects completion via Beads:
 
-1. **Checkbox check**: All `[ ]` in RALPH_TASK.md changed to `[x]`
-2. **Agent sigil**: Agent outputs `<ralph>COMPLETE</ralph>`
+- **All tasks closed**: `bd list --label ralph:<runId> --status open|in_progress|blocked|deferred` returns empty
+- **Agent sigil**: Agent outputs `<ralph>COMPLETE</ralph>`
 
 Both are verified before declaring success.
 
@@ -332,34 +393,23 @@ Both are verified before declaring success.
 
 | File | Purpose | Who Uses It |
 |------|---------|-------------|
-| `RALPH_TASK.md` | Task definition + success criteria | You define, agent reads |
-| `.ralph/progress.md` | What's been accomplished | Agent writes after work |
+| `RALPH_TASK.md` | Task definition + success criteria | You define, Ralph reads |
 | `.ralph/guardrails.md` | Lessons learned (Signs) | Agent reads first, writes after failures |
-| `.ralph/activity.log` | Tool call log with token counts | Parser writes, you monitor |
-| `.ralph/errors.log` | Failures + gutter detection | Parser writes, agent reads |
-| `.ralph/.iteration` | Current iteration number | Parser reads/writes |
-
-## Configuration
-
-Configuration is set via command-line flags or environment variables:
-
-```bash
-# Via flags (recommended)
-./ralph-loop.sh -n 50 -m gpt-5.2-high
-
-# Via environment
-RALPH_MODEL=gpt-5.2-high MAX_ITERATIONS=50 ./ralph-loop.sh
-```
-
-Default thresholds in `ralph-common.sh`:
-
-```bash
-MAX_ITERATIONS=20       # Max rotations before giving up
-WARN_THRESHOLD=70000    # Tokens: send wrapup warning
-ROTATE_THRESHOLD=80000  # Tokens: force rotation
-```
+| `.ralph/runs/<runId>/progress.md` | What's been accomplished | Agent writes after work |
+| `.ralph/runs/<runId>/activity.log` | Tool call log with token counts | Parser writes, you monitor |
+| `.ralph/runs/<runId>/errors.log` | Failures + gutter detection | Parser writes, agent reads |
+| `.ralph/runs/<runId>/beads.label` | Beads label for filtering | Ralph reads/writes |
+| `.ralph/runs/<runId>/beads.root_id` | Root epic ID | Ralph reads/writes |
 
 ## Troubleshooting
+
+### "bd (Beads) CLI not found"
+
+Install Beads:
+```bash
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+bd init --stealth --quiet
+```
 
 ### "cursor-agent CLI not found"
 
@@ -369,7 +419,7 @@ curl https://cursor.com/install -fsS | bash
 
 ### Agent keeps failing on same thing
 
-Check `.ralph/errors.log` for the pattern. Either:
+Check `.ralph/runs/<runId>/errors.log` for the pattern. Either:
 1. Fix the underlying issue manually
 2. Add a guardrail to `.ralph/guardrails.md` explaining what to do differently
 
@@ -385,6 +435,10 @@ Check if criteria are too vague. Each criterion should be:
 - Specific and testable
 - Achievable in a single iteration
 - Not dependent on manual steps
+
+### Beads tasks not syncing
+
+Run `bd sync` manually to force synchronization.
 
 ## Workflows
 
@@ -402,6 +456,15 @@ Check if criteria are too vague. Each criterion should be:
 ./ralph-setup.sh  # Continue with full loop
 ```
 
+### Parallel tasks
+
+```bash
+# Run two different task files in parallel
+./ralph-loop.sh --task-file TASK_API.md --run-id api -y &
+./ralph-loop.sh --task-file TASK_UI.md --run-id ui -y &
+wait
+```
+
 ### Scripted/CI
 
 ```bash
@@ -412,6 +475,7 @@ Check if criteria are too vague. Each criterion should be:
 
 - [Original Ralph technique](https://ghuntley.com/ralph/) - Geoffrey Huntley
 - [Context as memory](https://ghuntley.com/allocations/) - The malloc/free metaphor
+- [Beads issue tracker](https://github.com/steveyegge/beads) - Git-backed task tracking for agents
 - [Cursor CLI docs](https://cursor.com/docs/cli/headless)
 - [gum - A tool for glamorous shell scripts](https://github.com/charmbracelet/gum)
 
@@ -419,6 +483,7 @@ Check if criteria are too vague. Each criterion should be:
 
 - **Original technique**: [Geoffrey Huntley](https://ghuntley.com/ralph/) - the Ralph Wiggum methodology
 - **Cursor port**: [Agrim Singh](https://x.com/agrimsingh) - this implementation
+- **Beads integration**: For structured task tracking
 
 ## License
 
