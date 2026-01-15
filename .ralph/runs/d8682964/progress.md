@@ -199,6 +199,28 @@ All code requirements verified. The codebase is clean with:
 **Status:**
 All requirements verified complete! Ready to close Beads tasks.
 
+### 2026-01-15 (Final)
+**Session 4 - Task Closure**
+
+**Tasks Closed:**
+- ✅ ralph-wiggum-cursor-beads-79m.1 - CLI surface verified
+- ✅ ralph-wiggum-cursor-beads-79m.2 - All capabilities reachable
+- ✅ ralph-wiggum-cursor-beads-79m.3 - Legacy scripts are thin wrappers
+- ✅ ralph-wiggum-cursor-beads-79m.4 - Scripts not installed (removed from installation interface)
+- ✅ ralph-wiggum-cursor-beads-79m.5 - Thin wrappers with deprecation warnings
+- ✅ ralph-wiggum-cursor-beads-79m.6 - No duplicated core logic
+- ✅ ralph-wiggum-cursor-beads-79m.7 - install.sh only installs scripts/ralph
+- ✅ ralph-wiggum-cursor-beads-79m.8 - README.md references only scripts/ralph
+- ✅ ralph-wiggum-cursor-beads-79m.9 - Smoke tests verified
+- ✅ ralph-wiggum-cursor-beads-79m.10 - Syntax check passes (bash -n scripts/ralph)
+- ✅ ralph-wiggum-cursor-beads-79m.11 - Syntax check passes (bash -n scripts/*.sh)
+- ✅ ralph-wiggum-cursor-beads-79m.12 - scripts/ralph --help runs without error
+- ✅ ralph-wiggum-cursor-beads-79m.13 - Wrappers delegate successfully
+- ✅ ralph-wiggum-cursor-beads-79m - Epic closed (all tasks complete)
+
+**Final Status:**
+✅ **COMPLETE** - All Beads tasks closed. `scripts/ralph` is now the single supported CLI entrypoint.
+
 ### 2026-01-15 (Current Session)
 **Session 5 - Final Verification**
 
