@@ -97,3 +97,48 @@ All tasks complete! Legacy scripts are now proper thin wrappers that delegate to
 
 ### 2026-01-15 14:58:42
 **Session 4 started** (model: composer-1)
+
+### 2026-01-15 (Current Session)
+**Session 4 - Final Verification and Task Closure**
+
+**Verification Completed:**
+1. ✅ Verified `scripts/ralph` provides cohesive CLI surface:
+   - Has `show_help()` function with usage and commands
+   - Supports `init`, `once`, `template`, and main loop commands
+   - Help text includes "Ralph Wiggum" as expected by smoke tests
+
+2. ✅ Verified all legacy script capabilities are reachable via `scripts/ralph`:
+   - `ralph-setup.sh` → `ralph` (main loop) ✓
+   - `ralph-once.sh` → `ralph once` (single iteration) ✓
+   - `ralph-loop.sh` → `ralph` (main loop) ✓
+   - `init-ralph.sh` → `ralph init` (initialization) ✓
+   - `init-ralph.sh --print-template` → `ralph template` (template) ✓
+
+3. ✅ Verified legacy scripts are thin wrappers:
+   - `ralph-setup.sh`: 23 lines, just delegates to `ralph` ✓
+   - `ralph-once.sh`: 23 lines, just delegates to `ralph once` ✓
+   - `ralph-loop.sh`: 23 lines, just delegates to `ralph` ✓
+   - `init-ralph.sh`: 32 lines, just delegates to `ralph init` or `ralph template` ✓
+   - All print deprecation warnings to stderr ✓
+
+4. ✅ Verified no duplicated core logic:
+   - All shared logic is in `scripts/ralph-common.sh` ✓
+   - Legacy scripts have no implementation, only delegation ✓
+
+5. ✅ Verified `install.sh` only installs supported entrypoint:
+   - Installs: `ralph`, `ralph-common.sh`, `stream-parser.sh` ✓
+   - Does NOT install: `ralph-setup.sh`, `ralph-once.sh`, `ralph-loop.sh`, `init-ralph.sh` ✓
+
+6. ✅ Verified `README.md`:
+   - References only `./ralph` throughout all usage examples ✓
+   - Has "Deprecated Scripts" section documenting migration path ✓
+   - No references to legacy scripts in examples ✓
+
+7. ✅ Verified smoke test script (`test-smoke.sh`):
+   - Tests `ralph --help` outputs "Ralph Wiggum" ✓
+   - Tests `ralph template` outputs "task:" ✓
+   - Tests all legacy wrappers print deprecation warnings ✓
+   - Logic verified correct (code review)
+
+**Status:**
+All requirements verified complete! Ready to close Beads tasks.
