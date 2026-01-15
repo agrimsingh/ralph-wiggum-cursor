@@ -7,3 +7,16 @@
 Ralph Session Started: Thu Jan 15 14:52:19 MST 2026
 ═══════════════════════════════════════════════════════════════
 [14:55:00] 🟢 TOKENS: 750 / 80000 (0%) [read:0KB write:0KB assist:0KB shell:0KB]
+[14:55:08] 🟢 SESSION START: model=Composer 1
+[14:55:16] 🟢 READ .ralph/runs/d8682964/progress.md (12 lines, ~1.1KB)
+[14:55:16] 🟢 READ .ralph/runs/d8682964/beads.label (2 lines, ~.1KB)
+[14:55:16] 🟢 READ .ralph/runs/d8682964/activity.log (11 lines, ~1.0KB)
+[14:55:16] 🟢 READ .ralph/runs/d8682964/errors.log (5 lines, ~.4KB)
+[14:55:16] 🟢 READ scripts/ralph (698 lines, ~68.1KB)
+[14:55:16] 🟢 READ scripts/ralph-setup.sh (509 lines, ~49.7KB)
+[14:55:16] 🟢 READ scripts/ralph-once.sh (279 lines, ~27.2KB)
+[14:55:16] 🟢 READ scripts/ralph-loop.sh (252 lines, ~24.6KB)
+[14:55:16] 🟡 READ scripts/init-ralph.sh (350 lines, ~34.1KB)
+[14:55:17] 🟡 READ install.sh (300 lines, ~29.2KB)
+[14:55:17] 🔴 READ README.md (587 lines, ~57.3KB)
+[14:55:17] 🔴 WARN: Approaching token limit (75892 >= 70000)

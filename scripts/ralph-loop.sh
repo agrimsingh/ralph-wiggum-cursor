@@ -1,46 +1,25 @@
 #!/bin/bash
-# Ralph Wiggum: The Loop (CLI Mode)
+# Ralph Wiggum: The Loop (DEPRECATED)
 #
-# Runs cursor-agent locally with stream-json parsing for accurate token tracking.
-# Handles context rotation via --resume when thresholds are hit.
+# This script is deprecated. Use 'ralph' instead.
 #
-# This script is for power users and scripting. For interactive use, see ralph-setup.sh.
+# Migration:
+#   ./ralph-loop.sh --task-file plans/api.md
+#   → ralph --task-file plans/api.md
 #
-# Usage:
-#   ./ralph-loop.sh --task-file plans/api.md         # Run with your plan file
-#   ./ralph-loop.sh --task-file plans/api.md --run-id api  # Parallel run
-#   ./ralph-loop.sh -n 50 -m gpt-5.2-high --task-file plans/api.md
-#   ./ralph-loop.sh --branch feature/foo --pr --task-file plans/api.md -y
-#
-# Get the task template:
-#   ../init-ralph.sh --print-template > plans/my-task.md
-#
-# Flags:
-#   -n, --iterations N     Max iterations (default: 20)
-#   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
-#   -f, --task-file FILE   Task/plan file path (bring your own, falls back to RALPH_TASK.md)
-#   -r, --run-id ID        Run ID for state isolation (default: derived from task file)
-#   --branch NAME          Create and work on a new branch
-#   --pr                   Open PR when complete (requires --branch)
-#   -y, --yes              Skip confirmation prompt
-#   -h, --help             Show this help
-#
-# Environment:
-#   RALPH_TASK_FILE        Override task file (same as -f flag)
-#   RALPH_RUN_ID           Override run ID (same as -r flag)
-#
-# Requirements:
-#   - Task/plan file (bring your own, or RALPH_TASK.md as fallback)
-#   - Git repository
-#   - cursor-agent CLI installed
-#   - bd (Beads) CLI installed and initialized
+# This wrapper delegates to 'ralph' and will be removed in a future version.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source common functions
-source "$SCRIPT_DIR/ralph-common.sh"
+# Print deprecation warning to stderr
+echo "⚠️  WARNING: ralph-loop.sh is deprecated. Use 'ralph' instead." >&2
+echo "   Migration: ./ralph-loop.sh [args] → ralph [args]" >&2
+echo "" >&2
+
+# Delegate to ralph
+exec "$SCRIPT_DIR/ralph" "$@"
 
 # =============================================================================
 # FLAG PARSING

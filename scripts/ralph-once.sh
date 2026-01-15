@@ -1,34 +1,25 @@
 #!/bin/bash
-# Ralph Wiggum: Single Iteration (Human-in-the-Loop)
+# Ralph Wiggum: Single Iteration (DEPRECATED)
 #
-# Runs exactly ONE iteration of the Ralph loop, then stops.
-# Useful for testing your task definition before going AFK.
+# This script is deprecated. Use 'ralph once' instead.
 #
-# Usage:
-#   ./ralph-once.sh --task-file plans/api.md     # Test with your plan file
-#   ./ralph-once.sh --task-file plans/api.md -m gpt-5.2-high  # Custom model
-#   ./ralph-once.sh                              # Legacy: uses RALPH_TASK.md if present
+# Migration:
+#   ./ralph-once.sh --task-file plans/api.md
+#   → ralph once --task-file plans/api.md
 #
-# Get the task template:
-#   ../init-ralph.sh --print-template > plans/my-task.md
-#
-# After running:
-#   - Review the changes made
-#   - Check git log for commits
-#   - If satisfied, run ralph-setup.sh or ralph-loop.sh for full loop
-#
-# Requirements:
-#   - Task/plan file (bring your own, or RALPH_TASK.md as fallback)
-#   - Git repository
-#   - cursor-agent CLI installed
-#   - bd (Beads) CLI installed and initialized
+# This wrapper delegates to 'ralph once' and will be removed in a future version.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source common functions
-source "$SCRIPT_DIR/ralph-common.sh"
+# Print deprecation warning to stderr
+echo "⚠️  WARNING: ralph-once.sh is deprecated. Use 'ralph once' instead." >&2
+echo "   Migration: ./ralph-once.sh [args] → ralph once [args]" >&2
+echo "" >&2
+
+# Delegate to ralph once
+exec "$SCRIPT_DIR/ralph" once "$@"
 
 # =============================================================================
 # FLAG PARSING

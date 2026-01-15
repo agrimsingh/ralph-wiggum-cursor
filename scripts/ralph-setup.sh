@@ -1,30 +1,25 @@
 #!/bin/bash
-# Ralph Wiggum: Interactive Setup & Loop
+# Ralph Wiggum: Interactive Setup & Loop (DEPRECATED)
 #
-# THE main entry point for Ralph. Uses gum for a beautiful CLI experience,
-# falls back to simple prompts if gum is not installed.
+# This script is deprecated. Use 'ralph' instead.
 #
-# Usage:
-#   ./ralph-setup.sh --task-file plans/api.md     # Run with your plan file
-#   ./ralph-setup.sh --task-file plans/api.md --run-id api  # Parallel run
-#   ./ralph-setup.sh                              # Legacy: uses RALPH_TASK.md if present
+# Migration:
+#   ./ralph-setup.sh --task-file plans/api.md
+#   → ralph --task-file plans/api.md
 #
-# Get the task template:
-#   ../init-ralph.sh --print-template > plans/my-task.md
-#
-# Requirements:
-#   - Task/plan file (bring your own, or RALPH_TASK.md as fallback)
-#   - Git repository
-#   - cursor-agent CLI installed
-#   - bd (Beads) CLI installed and initialized
-#   - gum (optional, for enhanced UI): brew install gum
+# This wrapper delegates to 'ralph' and will be removed in a future version.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source common functions
-source "$SCRIPT_DIR/ralph-common.sh"
+# Print deprecation warning to stderr
+echo "⚠️  WARNING: ralph-setup.sh is deprecated. Use 'ralph' instead." >&2
+echo "   Migration: ./ralph-setup.sh [args] → ralph [args]" >&2
+echo "" >&2
+
+# Delegate to ralph
+exec "$SCRIPT_DIR/ralph" "$@"
 
 # =============================================================================
 # FLAG PARSING
