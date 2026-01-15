@@ -69,14 +69,20 @@ calc_tokens() {
   echo $((total_bytes / 4))
 }
 
-# Log to activity.log in run directory
+# Log to activity.log in run directory AND stream to stderr for inline display
 log_activity() {
   local message="$1"
   local timestamp=$(date '+%H:%M:%S')
   local tokens=$(calc_tokens)
   local emoji=$(get_health_emoji $tokens)
   
-  echo "[$timestamp] $emoji $message" >> "$RUN_DIR/activity.log"
+  local log_line="[$timestamp] $emoji $message"
+  
+  # Write to activity.log
+  echo "$log_line" >> "$RUN_DIR/activity.log"
+  
+  # Also stream to stderr for inline terminal display
+  echo "$log_line" >&2
 }
 
 # Log to errors.log in run directory
@@ -103,7 +109,13 @@ log_token_status() {
   fi
   
   local breakdown="[read:$((BYTES_READ/1024))KB write:$((BYTES_WRITTEN/1024))KB assist:$((ASSISTANT_CHARS/1024))KB shell:$((SHELL_OUTPUT_CHARS/1024))KB]"
-  echo "[$timestamp] $emoji $status_msg $breakdown" >> "$RUN_DIR/activity.log"
+  local log_line="[$timestamp] $emoji $status_msg $breakdown"
+  
+  # Write to activity.log
+  echo "$log_line" >> "$RUN_DIR/activity.log"
+  
+  # Also stream to stderr for inline terminal display
+  echo "$log_line" >&2
 }
 
 # Check for gutter conditions
@@ -281,10 +293,21 @@ process_line() {
 # Main loop: read JSON lines from stdin
 main() {
   # Initialize activity log for this session
+  local header_line=""
+  header_line+="═══════════════════════════════════════════════════════════════"
+  local start_line="Ralph Session Started: $(date)"
+  
+  # Write to activity.log
   echo "" >> "$RUN_DIR/activity.log"
-  echo "═══════════════════════════════════════════════════════════════" >> "$RUN_DIR/activity.log"
-  echo "Ralph Session Started: $(date)" >> "$RUN_DIR/activity.log"
-  echo "═══════════════════════════════════════════════════════════════" >> "$RUN_DIR/activity.log"
+  echo "$header_line" >> "$RUN_DIR/activity.log"
+  echo "$start_line" >> "$RUN_DIR/activity.log"
+  echo "$header_line" >> "$RUN_DIR/activity.log"
+  
+  # Also stream to stderr for inline display
+  echo "" >&2
+  echo "$header_line" >&2
+  echo "$start_line" >&2
+  echo "$header_line" >&2
   
   # Track last token log time
   local last_token_log=$(date +%s)
