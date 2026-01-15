@@ -290,6 +290,31 @@ process_line() {
           # Track for thrashing detection
           track_file_write "$path"
           
+        # Handle strReplace/edit tool completion
+        elif echo "$line" | jq -e '.tool_call.strReplaceToolCall.result.success' > /dev/null 2>&1; then
+          local path=$(echo "$line" | jq -r '.tool_call.strReplaceToolCall.args.path // "unknown"' 2>/dev/null) || path="unknown"
+          local old_string=$(echo "$line" | jq -r '.tool_call.strReplaceToolCall.args.old_string // ""' 2>/dev/null) || old_string=""
+          local new_string=$(echo "$line" | jq -r '.tool_call.strReplaceToolCall.args.new_string // ""' 2>/dev/null) || new_string=""
+          
+          # Estimate bytes changed
+          local bytes=$((${#old_string} + ${#new_string}))
+          BYTES_WRITTEN=$((BYTES_WRITTEN + bytes))
+          
+          # Count line changes (approximate)
+          local old_lines=$(echo "$old_string" | wc -l)
+          local new_lines=$(echo "$new_string" | wc -l)
+          
+          log_activity "EDIT $path (~$((old_lines + new_lines)) lines changed)"
+          
+          # Track for thrashing detection
+          track_file_write "$path"
+          
+        # Handle delete tool completion
+        elif echo "$line" | jq -e '.tool_call.deleteToolCall.result.success' > /dev/null 2>&1; then
+          local path=$(echo "$line" | jq -r '.tool_call.deleteToolCall.args.path // "unknown"' 2>/dev/null) || path="unknown"
+          
+          log_activity "DELETE $path"
+          
         # Handle shell tool completion
         elif echo "$line" | jq -e '.tool_call.shellToolCall.result' > /dev/null 2>&1; then
           local cmd=$(echo "$line" | jq -r '.tool_call.shellToolCall.args.command // "unknown"' 2>/dev/null) || cmd="unknown"
