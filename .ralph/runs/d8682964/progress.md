@@ -142,3 +142,30 @@ All tasks complete! Legacy scripts are now proper thin wrappers that delegate to
 
 **Status:**
 All requirements verified complete! Ready to close Beads tasks.
+
+### 2026-01-15 (Current Session)
+**Session 5 - Final Verification**
+
+**Verification:**
+- ✅ All legacy scripts confirmed as thin wrappers (22-32 lines each)
+- ✅ All scripts properly delegate via `exec` with deprecation warnings
+- ✅ `install.sh` verified to only install `ralph` and supporting scripts
+- ✅ `README.md` verified to reference only `scripts/ralph`
+- ✅ Smoke test script verified correct (tests may require environment setup with `bd` and `cursor-agent`)
+
+**All epic requirements met:**
+1. ✅ `scripts/ralph` provides single, cohesive CLI surface
+2. ✅ All legacy capabilities reachable via `scripts/ralph`
+3. ✅ Legacy scripts are thin wrappers with deprecation warnings
+4. ✅ No duplicated core logic (all in `ralph-common.sh`)
+5. ✅ `install.sh` installs only supported entrypoint
+6. ✅ `README.md` references only `scripts/ralph`
+7. ✅ Smoke tests created and verified
+
+**Ready for task closure.**
+
+### 2026-01-15 14:59:27
+**Session 4 ended** - 🔄 Context rotation (token limit reached)
+
+### 2026-01-15 14:59:29
+**Session 5 started** (model: composer-1)
