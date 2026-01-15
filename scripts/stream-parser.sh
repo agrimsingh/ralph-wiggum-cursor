@@ -180,6 +180,41 @@ track_file_write() {
   fi
 }
 
+# Detect and log Beads task operations (start/finish)
+detect_beads_operation() {
+  local cmd="$1"
+  local stdout="$2"
+  
+  # Detect task start: bd update <id> --status in_progress
+  if [[ "$cmd" == *"bd update"* ]] && [[ "$cmd" == *"--status in_progress"* ]] && [[ "$cmd" == *"--json"* ]]; then
+    # Parse JSON output to extract ID and title
+    local task_id=$(echo "$stdout" | jq -r '.[0].id // .id // empty' 2>/dev/null) || task_id=""
+    local task_title=$(echo "$stdout" | jq -r '.[0].title // .title // empty' 2>/dev/null) || task_title=""
+    
+    if [[ -n "$task_id" ]]; then
+      if [[ -n "$task_title" ]]; then
+        log_activity "🎯 TASK START: $task_id - $task_title"
+      else
+        log_activity "🎯 TASK START: $task_id"
+      fi
+    fi
+    
+  # Detect task finish: bd close <id>
+  elif [[ "$cmd" == *"bd close"* ]] && [[ "$cmd" == *"--json"* ]]; then
+    # Parse JSON output to extract ID and title
+    local task_id=$(echo "$stdout" | jq -r '.[0].id // .id // empty' 2>/dev/null) || task_id=""
+    local task_title=$(echo "$stdout" | jq -r '.[0].title // .title // empty' 2>/dev/null) || task_title=""
+    
+    if [[ -n "$task_id" ]]; then
+      if [[ -n "$task_title" ]]; then
+        log_activity "✅ TASK FINISH: $task_id - $task_title"
+      else
+        log_activity "✅ TASK FINISH: $task_id"
+      fi
+    fi
+  fi
+}
+
 # Process a single JSON line from stream
 process_line() {
   local line="$1"
@@ -264,6 +299,11 @@ process_line() {
           local stderr=$(echo "$line" | jq -r '.tool_call.shellToolCall.result.stderr // ""' 2>/dev/null) || stderr=""
           local output_chars=$((${#stdout} + ${#stderr}))
           SHELL_OUTPUT_CHARS=$((SHELL_OUTPUT_CHARS + output_chars))
+          
+          # Detect Beads operations before general logging
+          if [[ $exit_code -eq 0 ]]; then
+            detect_beads_operation "$cmd" "$stdout"
+          fi
           
           if [[ $exit_code -eq 0 ]]; then
             if [[ $output_chars -gt 1024 ]]; then
