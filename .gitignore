@@ -3,3 +3,5 @@
 
 # Ralph default task file (local plan doc - use --task-file for versioned plans)
 RALPH_TASK.md
+
+.ralph/runs
