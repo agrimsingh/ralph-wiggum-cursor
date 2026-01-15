@@ -7,6 +7,127 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
+# =============================================================================
+# FLAG PARSING
+# =============================================================================
+
+PRINT_TEMPLATE=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --print-template)
+      PRINT_TEMPLATE=true
+      shift
+      ;;
+    -h|--help)
+      cat << 'EOF'
+Ralph Wiggum: Initialize Ralph in a project
+
+Usage:
+  ./init-ralph.sh              # Initialize Ralph state files
+  ./init-ralph.sh --print-template  # Print task template to stdout
+
+Options:
+  --print-template   Print the task file template to stdout (for BYO plan docs)
+  -h, --help         Show this help
+
+Examples:
+  # Initialize Ralph in current directory
+  ./init-ralph.sh
+
+  # Create a new task file from template
+  ./init-ralph.sh --print-template > plans/my-task.md
+
+  # Or pipe to clipboard
+  ./init-ralph.sh --print-template | pbcopy
+EOF
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use -h for help."
+      exit 1
+      ;;
+  esac
+done
+
+# =============================================================================
+# PRINT TEMPLATE MODE (non-invasive)
+# =============================================================================
+
+if [[ "$PRINT_TEMPLATE" == "true" ]]; then
+  if [[ -f "$SKILL_DIR/assets/RALPH_TASK_TEMPLATE.md" ]]; then
+    cat "$SKILL_DIR/assets/RALPH_TASK_TEMPLATE.md"
+  else
+    cat << 'EOF'
+---
+task: [Brief description of the task]
+test_command: "npm test"
+---
+
+# Task: [Task Name]
+
+## Overview
+
+[Describe what needs to be built/fixed/improved]
+
+## Requirements
+
+### Functional Requirements
+
+1. [Requirement 1]
+2. [Requirement 2]
+3. [Requirement 3]
+
+### Non-Functional Requirements
+
+- [Performance, security, etc.]
+
+## Constraints
+
+- [Technology constraints]
+- [Time constraints]
+- [Other limitations]
+
+## Success Criteria
+
+The following will be converted to Beads tasks when Ralph first runs.
+Progress is tracked via `bd ready`, `bd close`, etc.
+
+1. [Verifiable criterion 1]
+2. [Verifiable criterion 2]
+3. [Verifiable criterion 3]
+
+## Notes
+
+[Any additional context, links to documentation, etc.]
+
+---
+
+## Ralph Instructions
+
+When working on this task:
+
+1. Check `bd ready --label ralph:<runId> --json` to find the next available task
+2. Claim it: `bd update <id> --status in_progress --json`
+3. Work on the task
+4. Close when done: `bd close <id> --reason "description" --json`
+5. Sync: `bd sync`
+6. Read `.ralph/runs/<runId>/progress.md` to see what's been done
+7. Check `.ralph/guardrails.md` for signs to follow
+8. Update `.ralph/runs/<runId>/progress.md` with your progress
+9. Commit your changes with descriptive messages
+10. When all tasks are closed, output: `<ralph>COMPLETE</ralph>`
+11. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`
+EOF
+  fi
+  exit 0
+fi
+
+# =============================================================================
+# INITIALIZATION MODE
+# =============================================================================
+
 echo "═══════════════════════════════════════════════════════════════════"
 echo "🐛 Ralph Wiggum Initialization"
 echo "═══════════════════════════════════════════════════════════════════"
@@ -78,50 +199,6 @@ mkdir -p .ralph
 mkdir -p .cursor/ralph-scripts
 
 # =============================================================================
-# CREATE RALPH_TASK.md IF NOT EXISTS
-# =============================================================================
-
-if [[ ! -f "RALPH_TASK.md" ]]; then
-  echo "📝 Creating RALPH_TASK.md template..."
-  if [[ -f "$SKILL_DIR/assets/RALPH_TASK_TEMPLATE.md" ]]; then
-    cp "$SKILL_DIR/assets/RALPH_TASK_TEMPLATE.md" RALPH_TASK.md
-  else
-    cat > RALPH_TASK.md << 'EOF'
----
-task: Your task description here
-test_command: "npm test"
----
-
-# Task
-
-Describe what you want to accomplish.
-
-## Success Criteria
-
-The following will be converted to Beads tasks when you first run Ralph:
-
-1. First thing to complete
-2. Second thing to complete
-3. Third thing to complete
-
-## Context
-
-Any additional context the agent should know.
-
-## Notes
-
-- This task file defines the work to be done
-- When Ralph runs, it creates Beads issues from Success Criteria
-- Progress is tracked via Beads (`bd list`, `bd ready`, etc.)
-- Each run gets isolated state in `.ralph/runs/<runId>/`
-EOF
-  fi
-  echo "   Edit RALPH_TASK.md to define your task."
-else
-  echo "✓ RALPH_TASK.md already exists"
-fi
-
-# =============================================================================
 # INITIALIZE STATE FILES (shared guardrails only)
 # =============================================================================
 
@@ -186,11 +263,20 @@ if [[ -f ".gitignore" ]]; then
     echo "# Ralph config (may contain API keys)" >> .gitignore
     echo ".cursor/ralph-config.json" >> .gitignore
   fi
+  # Add RALPH_TASK.md as a local default plan doc (not versioned by default)
+  if ! grep -q "^RALPH_TASK.md$" .gitignore 2>/dev/null; then
+    echo "" >> .gitignore
+    echo "# Ralph default task file (local plan doc - use --task-file for versioned plans)" >> .gitignore
+    echo "RALPH_TASK.md" >> .gitignore
+  fi
   echo "✓ Updated .gitignore"
 else
   cat > .gitignore << 'EOF'
 # Ralph config (may contain API keys)
 .cursor/ralph-config.json
+
+# Ralph default task file (local plan doc - use --task-file for versioned plans)
+RALPH_TASK.md
 EOF
   echo "✓ Created .gitignore"
 fi
@@ -220,8 +306,8 @@ if [[ "$BEADS_MISSING" == "true" ]]; then
 fi
 
 echo "Files created:"
-echo "  • RALPH_TASK.md           - Define your task here"
 echo "  • .ralph/guardrails.md    - Lessons learned (shared across runs)"
+echo "  • .cursor/ralph-scripts/  - Ralph scripts"
 echo ""
 echo "Per-run files (created on first run):"
 echo "  • .ralph/runs/<runId>/progress.md    - Progress log"
@@ -233,16 +319,25 @@ echo ""
 echo "Next steps:"
 if [[ "$BEADS_MISSING" == "true" ]]; then
   echo "  1. Install Beads (see above)"
-  echo "  2. Edit RALPH_TASK.md to define your task and criteria"
-  echo "  3. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+  echo "  2. Create a task/plan file (see template below)"
+  echo "  3. Run: ./.cursor/ralph-scripts/ralph-setup.sh --task-file <your-plan.md>"
 else
-  echo "  1. Edit RALPH_TASK.md to define your task and criteria"
-  echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+  echo "  1. Create a task/plan file (any path, e.g. plans/api.md)"
+  echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh --task-file <your-plan.md>"
 fi
 echo ""
-echo "Parallel runs (different task files):"
-echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_A.md --run-id a"
-echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_B.md --run-id b"
+echo "Get the task template:"
+echo "  ./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/my-task.md"
+echo ""
+echo "Fallback: If RALPH_TASK.md exists, you can omit --task-file."
+echo ""
+echo "Examples:"
+echo "  # Single task"
+echo "  ./.cursor/ralph-scripts/ralph-setup.sh --task-file plans/api.md"
+echo ""
+echo "  # Parallel runs (different task files)"
+echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/api.md --run-id api"
+echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/ui.md --run-id ui"
 echo ""
 echo "Monitor progress:"
 echo "  bd list --json                                # See all Beads tasks"

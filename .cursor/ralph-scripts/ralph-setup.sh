@@ -5,18 +5,13 @@
 # falls back to simple prompts if gum is not installed.
 #
 # Usage:
-#   ./ralph-setup.sh --task-file plans/api.md     # Run with your plan file
-#   ./ralph-setup.sh --task-file plans/api.md --run-id api  # Parallel run
-#   ./ralph-setup.sh                              # Legacy: uses RALPH_TASK.md if present
-#
-# Get the task template:
-#   ../init-ralph.sh --print-template > plans/my-task.md
+#   ./ralph-setup.sh                    # Interactive setup + run loop
+#   ./ralph-setup.sh /path/to/project   # Run in specific project
 #
 # Requirements:
-#   - Task/plan file (bring your own, or RALPH_TASK.md as fallback)
+#   - RALPH_TASK.md in the project root
 #   - Git repository
 #   - cursor-agent CLI installed
-#   - bd (Beads) CLI installed and initialized
 #   - gum (optional, for enhanced UI): brew install gum
 
 set -euo pipefail
@@ -25,74 +20,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source common functions
 source "$SCRIPT_DIR/ralph-common.sh"
-
-# =============================================================================
-# FLAG PARSING
-# =============================================================================
-
-show_help() {
-  cat << 'EOF'
-Ralph Wiggum: Interactive Setup & Loop
-
-Usage:
-  ./ralph-setup.sh [options] [workspace]
-
-Options:
-  -f, --task-file FILE   Task/plan file path (bring your own plan doc)
-                         Falls back to RALPH_TASK.md if present
-  -r, --run-id ID        Run ID for state isolation (default: derived from task file)
-  -h, --help             Show this help
-
-Examples:
-  # Run with your own plan file (recommended)
-  ./ralph-setup.sh --task-file plans/api.md
-
-  # Run with custom run ID for parallel execution
-  ./ralph-setup.sh --task-file plans/api.md --run-id api
-
-  # Legacy: use RALPH_TASK.md if it exists
-  ./ralph-setup.sh
-
-  # Get the task template
-  ../init-ralph.sh --print-template > plans/my-task.md
-
-Environment:
-  RALPH_TASK_FILE        Override task file (same as -f flag)
-  RALPH_RUN_ID           Override run ID (same as -r flag)
-
-For CLI mode with flags, use ralph-loop.sh instead.
-EOF
-}
-
-# Parse command line arguments
-WORKSPACE=""
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -f|--task-file)
-      TASK_FILE="$2"
-      shift 2
-      ;;
-    -r|--run-id)
-      RUN_ID="$2"
-      shift 2
-      ;;
-    -h|--help)
-      show_help
-      exit 0
-      ;;
-    -*)
-      echo "Unknown option: $1"
-      echo "Use -h for help."
-      exit 1
-      ;;
-    *)
-      # Positional argument = workspace
-      WORKSPACE="$1"
-      shift
-      ;;
-  esac
-done
 
 # =============================================================================
 # GUM DETECTION
@@ -246,28 +173,13 @@ show_header() {
 # =============================================================================
 
 main() {
-  # Resolve workspace
-  if [[ -z "$WORKSPACE" ]]; then
-    WORKSPACE="$(pwd)"
-  elif [[ "$WORKSPACE" == "." ]]; then
-    WORKSPACE="$(pwd)"
-  else
-    WORKSPACE="$(cd "$WORKSPACE" && pwd)"
+  local workspace="${1:-.}"
+  if [[ "$workspace" == "." ]]; then
+    workspace="$(pwd)"
   fi
+  workspace="$(cd "$workspace" && pwd)"
   
-  # Resolve task file
-  local task_file
-  task_file=$(resolve_task_file "$WORKSPACE" "$TASK_FILE")
-  
-  # Derive or use provided run ID
-  local run_id="${RUN_ID:-}"
-  if [[ -z "$run_id" ]]; then
-    run_id=$(derive_run_id "$task_file" "$WORKSPACE")
-  fi
-  
-  # Get run directory
-  local run_dir
-  run_dir=$(get_run_dir "$WORKSPACE" "$run_id")
+  local task_file="$workspace/RALPH_TASK.md"
   
   # Show banner
   echo ""
@@ -282,24 +194,14 @@ main() {
   echo ""
   
   # Check prerequisites
-  if ! check_prerequisites "$WORKSPACE" "$task_file"; then
+  if ! check_prerequisites "$workspace"; then
     exit 1
   fi
   
-  # Initialize run directory
-  init_run_dir "$run_dir"
+  # Initialize .ralph directory
+  init_ralph_dir "$workspace"
   
-  # Initialize shared guardrails
-  init_guardrails "$WORKSPACE"
-  
-  # Bootstrap Beads issues if not already done
-  if ! is_beads_initialized "$run_dir"; then
-    bootstrap_beads_from_task_md "$WORKSPACE" "$task_file" "$run_dir" "$run_id"
-  fi
-  
-  echo "Workspace:  $WORKSPACE"
-  echo "Task file:  $task_file"
-  echo "Run ID:     $run_id"
+  echo "Workspace: $workspace"
   echo ""
   
   # Show task summary
@@ -309,18 +211,18 @@ main() {
   echo "─────────────────────────────────────────────────────────────────"
   echo ""
   
-  # Count criteria via Beads
-  local counts
-  counts=$(count_criteria "$run_dir")
-  local done_criteria="${counts%%:*}"
-  local total_criteria="${counts##*:}"
-  local remaining=$((total_criteria - done_criteria))
+  # Count criteria
+  local total_criteria done_criteria remaining
+  # Only count actual checkbox list items (- [ ], * [x], 1. [ ], etc.)
+  total_criteria=$(grep -cE '^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]+\[(x| )\]' "$task_file" 2>/dev/null) || total_criteria=0
+  done_criteria=$(grep -cE '^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]+\[x\]' "$task_file" 2>/dev/null) || done_criteria=0
+  remaining=$((total_criteria - done_criteria))
   
-  echo "Progress: $done_criteria / $total_criteria tasks complete ($remaining remaining)"
+  echo "Progress: $done_criteria / $total_criteria criteria complete ($remaining remaining)"
   echo ""
   
   if [[ "$remaining" -eq 0 ]] && [[ "$total_criteria" -gt 0 ]]; then
-    echo "🎉 Task already complete! All Beads tasks are closed."
+    echo "🎉 Task already complete! All criteria are checked."
     exit 0
   fi
   
@@ -391,8 +293,6 @@ main() {
   echo "Summary:"
   echo "  • Model:      $MODEL"
   echo "  • Iterations: $MAX_ITERATIONS max"
-  echo "  • Task file:  $task_file"
-  echo "  • Run ID:     $run_id"
   [[ -n "$USE_BRANCH" ]] && echo "  • Branch:     $USE_BRANCH"
   [[ "$OPEN_PR" == "true" ]] && echo "  • Open PR:    Yes"
   [[ "$run_single_first" == "true" ]] && echo "  • Test first: Yes (single iteration)"
@@ -422,11 +322,11 @@ main() {
     
     # Run just one iteration
     local signal
-    signal=$(run_iteration "$WORKSPACE" "1" "" "$SCRIPT_DIR" "$task_file" "$run_dir")
+    signal=$(run_iteration "$workspace" "1" "" "$SCRIPT_DIR")
     
     # Check result
     local task_status
-    task_status=$(check_task_complete "$run_dir")
+    task_status=$(check_task_complete "$workspace")
     
     if [[ "$task_status" == "COMPLETE" ]]; then
       echo ""
@@ -448,14 +348,14 @@ main() {
     local session_id=""
     
     while [[ $iteration -le $MAX_ITERATIONS ]]; do
-      signal=$(run_iteration "$WORKSPACE" "$iteration" "$session_id" "$SCRIPT_DIR" "$task_file" "$run_dir")
-      task_status=$(check_task_complete "$run_dir")
+      signal=$(run_iteration "$workspace" "$iteration" "$session_id" "$SCRIPT_DIR")
+      task_status=$(check_task_complete "$workspace")
       
       if [[ "$task_status" == "COMPLETE" ]]; then
-        log_progress "$run_dir" "**Session $iteration ended** - ✅ TASK COMPLETE"
+        log_progress "$workspace" "**Session $iteration ended** - ✅ TASK COMPLETE"
         echo ""
         echo "═══════════════════════════════════════════════════════════════════"
-        echo "🎉 RALPH COMPLETE! All Beads tasks satisfied."
+        echo "🎉 RALPH COMPLETE! All criteria satisfied."
         echo "═══════════════════════════════════════════════════════════════════"
         echo ""
         echo "Completed in $iteration iteration(s)."
@@ -464,7 +364,7 @@ main() {
         if [[ "$OPEN_PR" == "true" ]] && [[ -n "$USE_BRANCH" ]]; then
           echo ""
           echo "📝 Opening pull request..."
-          cd "$WORKSPACE"
+          cd "$workspace"
           git push -u origin "$USE_BRANCH" 2>/dev/null || git push
           if command -v gh &> /dev/null; then
             gh pr create --fill || echo "⚠️  Could not create PR automatically."
@@ -476,14 +376,14 @@ main() {
       
       case "$signal" in
         "ROTATE")
-          log_progress "$run_dir" "**Session $iteration ended** - 🔄 Context rotation"
+          log_progress "$workspace" "**Session $iteration ended** - 🔄 Context rotation"
           echo "🔄 Rotating to fresh context..."
           iteration=$((iteration + 1))
           session_id=""
           ;;
         "GUTTER")
-          log_progress "$run_dir" "**Session $iteration ended** - 🚨 GUTTER"
-          echo "🚨 Gutter detected. Check $run_dir/errors.log"
+          log_progress "$workspace" "**Session $iteration ended** - 🚨 GUTTER"
+          echo "🚨 Gutter detected. Check .ralph/errors.log"
           exit 1
           ;;
         *)
@@ -501,7 +401,7 @@ main() {
   fi
   
   # Run full loop directly
-  run_ralph_loop "$WORKSPACE" "$SCRIPT_DIR" "$task_file" "$run_dir"
+  run_ralph_loop "$workspace" "$SCRIPT_DIR"
   exit $?
 }
 

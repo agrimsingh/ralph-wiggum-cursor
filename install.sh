@@ -194,65 +194,6 @@ fi
 echo "✓ .ralph/ initialized"
 
 # =============================================================================
-# CREATE RALPH_TASK.md TEMPLATE
-# =============================================================================
-
-if [[ ! -f "RALPH_TASK.md" ]]; then
-  echo "📝 Creating RALPH_TASK.md template..."
-  cat > RALPH_TASK.md <<'TASKEOF'
----
-task: Build a CLI todo app in TypeScript
-test_command: "npx ts-node todo.ts list"
----
-
-# Task: CLI Todo App (TypeScript)
-
-Build a simple command-line todo application in TypeScript.
-
-## Requirements
-
-1. Single file: `todo.ts`
-2. Uses `todos.json` for persistence
-3. Three commands: add, list, done
-4. TypeScript with proper types
-
-## Success Criteria
-
-The following will be converted to Beads tasks when you first run Ralph:
-
-1. `npx ts-node todo.ts add "Buy milk"` adds a todo and confirms
-2. `npx ts-node todo.ts list` shows all todos with IDs and status
-3. `npx ts-node todo.ts done 1` marks todo 1 as complete
-4. Todos survive script restart (JSON persistence)
-5. Invalid commands show helpful usage message
-6. Code has proper TypeScript types (no `any`)
-
-## Example Output
-
-```
-$ npx ts-node todo.ts add "Buy milk"
-✓ Added: "Buy milk" (id: 1)
-
-$ npx ts-node todo.ts list
-1. [ ] Buy milk
-
-$ npx ts-node todo.ts done 1
-✓ Completed: "Buy milk"
-```
-
-## Notes
-
-- This task file defines the work to be done
-- When Ralph runs, it creates Beads issues from Success Criteria
-- Progress is tracked via Beads (`bd list`, `bd ready`, etc.)
-- Each run gets isolated state in `.ralph/runs/<runId>/`
-TASKEOF
-  echo "✓ Created RALPH_TASK.md with example task"
-else
-  echo "✓ RALPH_TASK.md already exists (not overwritten)"
-fi
-
-# =============================================================================
 # UPDATE .gitignore
 # =============================================================================
 
@@ -262,10 +203,19 @@ if [[ -f ".gitignore" ]]; then
     echo "# Ralph config (may contain API key)" >> .gitignore
     echo ".cursor/ralph-config.json" >> .gitignore
   fi
+  # Add RALPH_TASK.md as a local default plan doc (not versioned by default)
+  if ! grep -q "^RALPH_TASK.md$" .gitignore 2>/dev/null; then
+    echo "" >> .gitignore
+    echo "# Ralph default task file (local plan doc - use --task-file for versioned plans)" >> .gitignore
+    echo "RALPH_TASK.md" >> .gitignore
+  fi
 else
   cat > .gitignore <<'EOF'
 # Ralph config (may contain API key)
 .cursor/ralph-config.json
+
+# Ralph default task file (local plan doc - use --task-file for versioned plans)
+RALPH_TASK.md
 EOF
 fi
 echo "✓ Updated .gitignore"
@@ -312,21 +262,28 @@ echo "     ├── errors.log              - Failure log"
 echo "     ├── beads.label             - Beads label for this run"
 echo "     └── beads.root_id           - Root epic ID"
 echo ""
-echo "  📄 RALPH_TASK.md               - Your task definition (edit this!)"
-echo ""
 echo "Next steps:"
 if [[ "$BEADS_MISSING" == "true" ]]; then
   echo "  1. Install Beads (see above)"
-  echo "  2. Edit RALPH_TASK.md to define your actual task"
-  echo "  3. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+  echo "  2. Create a task/plan file (see template below)"
+  echo "  3. Run: ./.cursor/ralph-scripts/ralph-setup.sh --task-file <your-plan.md>"
 else
-  echo "  1. Edit RALPH_TASK.md to define your actual task"
-  echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+  echo "  1. Create a task/plan file (any path, e.g. plans/api.md)"
+  echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh --task-file <your-plan.md>"
 fi
 echo ""
-echo "Parallel runs (different task files):"
-echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_A.md --run-id a"
-echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file TASK_B.md --run-id b"
+echo "Get the task template:"
+echo "  ./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/my-task.md"
+echo ""
+echo "Fallback: If RALPH_TASK.md exists, you can omit --task-file."
+echo ""
+echo "Examples:"
+echo "  # Single task"
+echo "  ./.cursor/ralph-scripts/ralph-setup.sh --task-file plans/api.md"
+echo ""
+echo "  # Parallel runs (different task files)"
+echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/api.md --run-id api"
+echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/ui.md --run-id ui"
 echo ""
 echo "Monitor progress:"
 echo "  bd list --json                 # See all Beads tasks"
