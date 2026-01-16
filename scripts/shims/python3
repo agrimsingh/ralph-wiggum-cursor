@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ralph shim for python3 - blocks launching an interactive REPL.
+
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+real_python3() {
+  local filtered_path=""
+  local IFS=":"
+  for p in $PATH; do
+    [[ "$p" == "$WRAPPER_DIR" ]] && continue
+    filtered_path+="${filtered_path:+:}$p"
+  done
+  PATH="$filtered_path" command -v python3 || true
+}
+
+REAL_PYTHON3="$(real_python3)"
+if [[ -z "${REAL_PYTHON3}" ]]; then
+  echo "ralph python3 shim: real python3 not found" >&2
+  exit 127
+fi
+
+if [[ $# -eq 0 ]]; then
+  echo "ralph python3 shim: blocked interactive 'python3' REPL (provide a script)" >&2
+  exit 2
+fi
+
+exec "$REAL_PYTHON3" "$@"

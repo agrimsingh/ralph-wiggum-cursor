@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ralph shim for npm
+# - Prevents interactive `npm init` from blocking the loop
+# - If package.json already exists, skips init entirely
+
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+real_npm() {
+  # Find the real npm by removing this shim dir from PATH
+  local filtered_path=""
+  local IFS=":"
+  for p in $PATH; do
+    [[ "$p" == "$WRAPPER_DIR" ]] && continue
+    filtered_path+="${filtered_path:+:}$p"
+  done
+  PATH="$filtered_path" command -v npm || true
+}
+
+REAL_NPM="$(real_npm)"
+if [[ -z "${REAL_NPM}" ]]; then
+  echo "ralph npm shim: real npm not found" >&2
+  exit 127
+fi
+
+subcmd="${1:-}"
+shift || true
+
+if [[ "$subcmd" == "init" ]]; then
+  # If package.json exists in the working directory, never run init.
+  if [[ -f "package.json" ]]; then
+    echo "ralph npm shim: package.json exists; skipping 'npm init' to avoid blocking/overwrites" >&2
+    exit 0
+  fi
+
+  # If this is initializer mode (npm init <initializer>), pass through unchanged.
+  # Example: npm init react-app myapp
+  if [[ "${1:-}" != "" && "${1:-}" != -* ]]; then
+    exec "$REAL_NPM" init "$@"
+  fi
+
+  # If caller already provided -y/--yes, pass through.
+  for a in "$@"; do
+    if [[ "$a" == "-y" || "$a" == "--yes" ]]; then
+      exec "$REAL_NPM" init "$@"
+    fi
+  done
+
+  # Default: make it non-interactive.
+  exec "$REAL_NPM" init -y "$@"
+fi
+
+exec "$REAL_NPM" "$subcmd" "$@"

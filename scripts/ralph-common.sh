@@ -88,6 +88,99 @@ get_health_emoji() {
   fi
 }
 
+# Kill a process and all its descendants
+kill_tree() {
+  local pid="$1"
+  local signal="${2:-TERM}"
+  
+  # First kill all children recursively
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child" "$signal"
+  done
+  
+  # Then kill the process itself
+  kill "-$signal" "$pid" 2>/dev/null || true
+}
+
+# Watchdog: monitors for blocking interactive processes (within the agent tree)
+# Runs as background process and emits GUTTER if a blocking process is found.
+# Args: agent_pid fifo workspace
+run_watchdog() {
+  local agent_pid="$1"
+  local fifo="$2"
+  local workspace="$3"
+  local activity_log="$workspace/.ralph/activity.log"
+  local errors_log="$workspace/.ralph/errors.log"
+
+  list_descendants() {
+    local root="$1"
+    local kids
+    kids=$(pgrep -P "$root" 2>/dev/null) || true
+    for k in $kids; do
+      echo "$k"
+      list_descendants "$k"
+    done
+  }
+
+  while kill -0 "$agent_pid" 2>/dev/null; do
+    sleep 3
+
+    local blocking=""
+    local blocking_pid=""
+
+    local pids=""
+    pids="$(list_descendants "$agent_pid")"
+
+    for pid in $pids; do
+      local cmdline
+      cmdline=$(ps -p "$pid" -o args= 2>/dev/null) || cmdline=""
+      [[ -z "$cmdline" ]] && continue
+
+      if [[ "$cmdline" =~ (^|[[:space:]])npm[[:space:]]+init($|[[:space:]]) ]] && [[ ! "$cmdline" =~ (-y|--yes) ]]; then
+        blocking="npm init (use 'npm init -y' OR skip if package.json exists)"
+        blocking_pid="$pid"
+        break
+      fi
+      if [[ "$cmdline" =~ (^|[[:space:]])git[[:space:]]+commit($|[[:space:]]) ]] && [[ ! "$cmdline" =~ (-m|--message|-F|--file|--no-edit) ]]; then
+        blocking="git commit (use 'git commit -m \"msg\"' or '--no-edit' for amend)"
+        blocking_pid="$pid"
+        break
+      fi
+      if [[ "$cmdline" =~ (^|[[:space:]])node($|[[:space:]]*$) ]]; then
+        blocking="node REPL (use 'node script.js')"
+        blocking_pid="$pid"
+        break
+      fi
+      if [[ "$cmdline" =~ (^|[[:space:]])python3?($|[[:space:]]*$) ]]; then
+        blocking="python REPL (use 'python script.py')"
+        blocking_pid="$pid"
+        break
+      fi
+    done
+
+    if [[ -n "$blocking" && -n "$blocking_pid" ]]; then
+      echo "[$(date '+%H:%M:%S')] 🚨 WATCHDOG: Blocking process detected: $blocking (pid=$blocking_pid)" >> "$activity_log"
+      echo "🚨 WATCHDOG: Blocking process detected: $blocking" >&2
+
+      # Also write to errors.log so next iteration sees it.
+      {
+        echo ""
+        echo "## BLOCKED: Interactive Command"
+        echo "- **Command**: $blocking"
+        echo "- **Action**: Process killed by watchdog"
+        echo "- **Fix**: Use non-interactive alternatives (npm init -y, git commit -m \"msg\")"
+        echo ""
+      } >> "$errors_log" 2>/dev/null || true
+
+      kill -9 "$blocking_pid" 2>/dev/null || true
+      echo "GUTTER" > "$fifo" 2>/dev/null || true
+      return
+    fi
+  done
+}
+
 # =============================================================================
 # LOGGING
 # =============================================================================
@@ -154,30 +247,29 @@ EOF
   # Initialize guardrails.md if it doesn't exist
   if [[ ! -f "$ralph_dir/guardrails.md" ]]; then
     cat > "$ralph_dir/guardrails.md" << 'EOF'
-# Ralph Guardrails (Signs)
+# Guardrails
 
-> Lessons learned from past failures. READ THESE BEFORE ACTING.
+> STOP. Read these before every action.
 
-## Core Signs
+## Non-Interactive Commands Only
 
-### Sign: Read Before Writing
-- **Trigger**: Before modifying any file
-- **Instruction**: Always read the existing file first
-- **Added after**: Core principle
+**NEVER** run commands that wait for input. Always use flags:
+- `npm init -y` (not `npm init`)
+- `git commit -m "msg"` (not `git commit`)
+- `python script.py` (not `python`)
+- `node script.js` (not `node`)
 
-### Sign: Test After Changes
-- **Trigger**: After any code change
-- **Instruction**: Run tests to verify nothing broke
-- **Added after**: Core principle
+## Safe Workflow
 
-### Sign: Commit Checkpoints
-- **Trigger**: Before risky changes
-- **Instruction**: Commit current working state first
-- **Added after**: Core principle
+1. **Read before write** - Check file contents before editing
+2. **Test after changes** - Run tests to verify
+3. **Commit checkpoints** - Save state before risky changes
 
 ---
 
-## Learned Signs
+## Learned Failures
+
+_(Added automatically when errors occur)_
 
 EOF
   fi
@@ -257,26 +349,49 @@ build_prompt() {
   local workspace="$1"
   local iteration="$2"
   
+  # Read guardrails and errors to inject directly
+  local guardrails=""
+  local errors=""
+  if [[ -f "$workspace/.ralph/guardrails.md" ]]; then
+    guardrails=$(cat "$workspace/.ralph/guardrails.md")
+  fi
+  if [[ -f "$workspace/.ralph/errors.log" ]]; then
+    errors=$(tail -30 "$workspace/.ralph/errors.log")
+  fi
+  
   cat << EOF
 # Ralph Iteration $iteration
 
-You are an autonomous development agent using the Ralph methodology.
+⚠️ **STOP! READ BEFORE ANY ACTION** ⚠️
 
-## FIRST: Read State Files
+1. Check if package.json exists BEFORE running npm init
+2. This is a git repo - do NOT run git init
+3. ALWAYS use: \`npm init -y\` (not \`npm init\`)
+4. ALWAYS use: \`git commit -m "msg"\` (not \`git commit\`)
 
-Before doing anything:
+**YOUR FIRST ACTION MUST BE: Read RALPH_TASK.md**
+
+---
+
+$guardrails
+
+## Recent Errors (From Previous Iterations)
+
+$errors
+
+## Read State Files
+
+Before coding:
 1. Read \`RALPH_TASK.md\` - your task and completion criteria
-2. Read \`.ralph/guardrails.md\` - lessons from past failures (FOLLOW THESE)
-3. Read \`.ralph/progress.md\` - what's been accomplished
-4. Read \`.ralph/errors.log\` - recent failures to avoid
+2. Read \`.ralph/progress.md\` - what's been accomplished
 
 ## Working Directory (Critical)
 
 You are already in a git repository. Work HERE, not in a subdirectory:
 
 - Do NOT run \`git init\` - the repo already exists
-- Do NOT run scaffolding commands that create nested directories (\`npx create-*\`, \`npm init\`, etc.)
-- If you need to scaffold, use flags like \`--no-git\` or scaffold into the current directory (\`.\`)
+- Do NOT run scaffolding commands that create nested directories (\`npx create-*\`)
+- Use \`npm init -y\` (with -y flag!) if you need to initialize a Node.js project
 - All code should live at the repo root or in subdirectories you create manually
 
 ## Git Protocol (Critical)
@@ -308,16 +423,9 @@ If you get rotated, the next agent picks up from your last commit. Your commits 
 ## Learning from Failures
 
 When something fails:
-1. Check \`.ralph/errors.log\` for failure history
-2. Figure out the root cause
-3. Add a Sign to \`.ralph/guardrails.md\` using this format:
-
-\`\`\`
-### Sign: [Descriptive Name]
-- **Trigger**: When this situation occurs
-- **Instruction**: What to do instead
-- **Added after**: Iteration $iteration - what happened
-\`\`\`
+1. Check \`.ralph/errors.log\` for what went wrong
+2. Add a one-line fix to \`.ralph/guardrails.md\` under "Learned Failures":
+   \`- [what went wrong] → [what to do instead]\`
 
 ## Context Rotation Warning
 
@@ -342,7 +450,17 @@ spinner() {
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   while true; do
-    printf "\r  🐛 Agent working... %s  (watch: tail -f %s/.ralph/activity.log)" "${spin:i++%${#spin}:1}" "$workspace" >&2
+    # Avoid line-wrapping (which creates "repeated" lines) by:
+    # - clearing the line every frame
+    # - showing a short, relative watch command
+    # - truncating to terminal width
+    local cols msg
+    cols="$(tput cols 2>/dev/null || echo 80)"
+    msg="  🐛 Agent working... ${spin:i++%${#spin}:1}  (watch: tail -f .ralph/activity.log)"
+    if [[ "$cols" =~ ^[0-9]+$ ]] && (( ${#msg} >= cols )); then
+      msg="${msg:0:cols-1}"
+    fi
+    printf "\r\033[2K%s" "$msg" >&2
     sleep 0.1
   done
 }
@@ -398,9 +516,24 @@ run_iteration() {
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
   (
+    # Harden the execution environment against interactive commands.
+    # Also prepend shimmed binaries so calls like `npm init` cannot block.
+    export PATH="$script_dir/shims:$PATH"
+    export CI=1
+    export npm_config_yes=true
+    export npm_config_audit=false
+    export npm_config_fund=false
+    export GIT_TERMINAL_PROMPT=0
+    export GIT_EDITOR=:
+    export EDITOR=:
+    export PAGER=cat
     eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
   ) &
   local agent_pid=$!
+
+  # Start watchdog to catch blocking interactive commands (e.g. npm init)
+  run_watchdog "$agent_pid" "$fifo" "$workspace" &
+  local watchdog_pid=$!
   
   # Read signals from parser
   local signal=""
@@ -409,7 +542,7 @@ run_iteration() {
       "ROTATE")
         printf "\r\033[K" >&2  # Clear spinner line
         echo "🔄 Context rotation triggered - stopping agent..." >&2
-        kill $agent_pid 2>/dev/null || true
+        kill_tree $agent_pid
         signal="ROTATE"
         break
         ;;
@@ -420,24 +553,30 @@ run_iteration() {
         ;;
       "GUTTER")
         printf "\r\033[K" >&2  # Clear spinner line
-        echo "🚨 Gutter detected - agent may be stuck..." >&2
+        echo "🚨 Gutter detected - killing stuck agent..." >&2
+        kill_tree $agent_pid
         signal="GUTTER"
-        # Don't kill yet, let agent try to recover
+        break
         ;;
       "COMPLETE")
         printf "\r\033[K" >&2  # Clear spinner line
         echo "✅ Agent signaled completion!" >&2
+        kill_tree $agent_pid
         signal="COMPLETE"
-        # Let agent finish gracefully
+        break
         ;;
     esac
   done < "$fifo"
   
   # Wait for agent to finish
   wait $agent_pid 2>/dev/null || true
+
+  # Stop watchdog
+  kill $watchdog_pid 2>/dev/null || true
+  wait $watchdog_pid 2>/dev/null || true
   
   # Stop spinner and clear line
-  kill $spinner_pid 2>/dev/null || true
+  kill_tree $spinner_pid
   wait $spinner_pid 2>/dev/null || true
   printf "\r\033[K" >&2  # Clear spinner line
   
