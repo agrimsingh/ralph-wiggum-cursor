@@ -247,30 +247,29 @@ EOF
   # Initialize guardrails.md if it doesn't exist
   if [[ ! -f "$ralph_dir/guardrails.md" ]]; then
     cat > "$ralph_dir/guardrails.md" << 'EOF'
-# Ralph Guardrails (Signs)
+# Guardrails
 
-> Lessons learned from past failures. READ THESE BEFORE ACTING.
+> STOP. Read these before every action.
 
-## Core Signs
+## Non-Interactive Commands Only
 
-### Sign: Read Before Writing
-- **Trigger**: Before modifying any file
-- **Instruction**: Always read the existing file first
-- **Added after**: Core principle
+**NEVER** run commands that wait for input. Always use flags:
+- `npm init -y` (not `npm init`)
+- `git commit -m "msg"` (not `git commit`)
+- `python script.py` (not `python`)
+- `node script.js` (not `node`)
 
-### Sign: Test After Changes
-- **Trigger**: After any code change
-- **Instruction**: Run tests to verify nothing broke
-- **Added after**: Core principle
+## Safe Workflow
 
-### Sign: Commit Checkpoints
-- **Trigger**: Before risky changes
-- **Instruction**: Commit current working state first
-- **Added after**: Core principle
+1. **Read before write** - Check file contents before editing
+2. **Test after changes** - Run tests to verify
+3. **Commit checkpoints** - Save state before risky changes
 
 ---
 
-## Learned Signs
+## Learned Failures
+
+_(Added automatically when errors occur)_
 
 EOF
   fi
@@ -350,26 +349,49 @@ build_prompt() {
   local workspace="$1"
   local iteration="$2"
   
+  # Read guardrails and errors to inject directly
+  local guardrails=""
+  local errors=""
+  if [[ -f "$workspace/.ralph/guardrails.md" ]]; then
+    guardrails=$(cat "$workspace/.ralph/guardrails.md")
+  fi
+  if [[ -f "$workspace/.ralph/errors.log" ]]; then
+    errors=$(tail -30 "$workspace/.ralph/errors.log")
+  fi
+  
   cat << EOF
 # Ralph Iteration $iteration
 
-You are an autonomous development agent using the Ralph methodology.
+⚠️ **STOP! READ BEFORE ANY ACTION** ⚠️
 
-## FIRST: Read State Files
+1. Check if package.json exists BEFORE running npm init
+2. This is a git repo - do NOT run git init
+3. ALWAYS use: \`npm init -y\` (not \`npm init\`)
+4. ALWAYS use: \`git commit -m "msg"\` (not \`git commit\`)
 
-Before doing anything:
+**YOUR FIRST ACTION MUST BE: Read RALPH_TASK.md**
+
+---
+
+$guardrails
+
+## Recent Errors (From Previous Iterations)
+
+$errors
+
+## Read State Files
+
+Before coding:
 1. Read \`RALPH_TASK.md\` - your task and completion criteria
-2. Read \`.ralph/guardrails.md\` - lessons from past failures (FOLLOW THESE)
-3. Read \`.ralph/progress.md\` - what's been accomplished
-4. Read \`.ralph/errors.log\` - recent failures to avoid
+2. Read \`.ralph/progress.md\` - what's been accomplished
 
 ## Working Directory (Critical)
 
 You are already in a git repository. Work HERE, not in a subdirectory:
 
 - Do NOT run \`git init\` - the repo already exists
-- Do NOT run scaffolding commands that create nested directories (\`npx create-*\`, \`npm init\`, etc.)
-- If you need to scaffold, use flags like \`--no-git\` or scaffold into the current directory (\`.\`)
+- Do NOT run scaffolding commands that create nested directories (\`npx create-*\`)
+- Use \`npm init -y\` (with -y flag!) if you need to initialize a Node.js project
 - All code should live at the repo root or in subdirectories you create manually
 
 ## Git Protocol (Critical)
@@ -401,16 +423,9 @@ If you get rotated, the next agent picks up from your last commit. Your commits 
 ## Learning from Failures
 
 When something fails:
-1. Check \`.ralph/errors.log\` for failure history
-2. Figure out the root cause
-3. Add a Sign to \`.ralph/guardrails.md\` using this format:
-
-\`\`\`
-### Sign: [Descriptive Name]
-- **Trigger**: When this situation occurs
-- **Instruction**: What to do instead
-- **Added after**: Iteration $iteration - what happened
-\`\`\`
+1. Check \`.ralph/errors.log\` for what went wrong
+2. Add a one-line fix to \`.ralph/guardrails.md\` under "Learned Failures":
+   \`- [what went wrong] → [what to do instead]\`
 
 ## Context Rotation Warning
 
