@@ -302,6 +302,9 @@ main() {
   echo "Ralph Session Started: $(date)" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
   
+  # Debug: log that we're starting to read
+  echo "[$(date '+%H:%M:%S')] DEBUG: stream-parser started, waiting for input..." >> "$RALPH_DIR/activity.log"
+  
   # Track last token log time
   local last_token_log=$(date +%s)
   
