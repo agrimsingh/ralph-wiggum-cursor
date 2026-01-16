@@ -104,6 +104,83 @@ kill_tree() {
   kill "-$signal" "$pid" 2>/dev/null || true
 }
 
+# Watchdog: monitors for blocking interactive processes (within the agent tree)
+# Runs as background process and emits GUTTER if a blocking process is found.
+# Args: agent_pid fifo workspace
+run_watchdog() {
+  local agent_pid="$1"
+  local fifo="$2"
+  local workspace="$3"
+  local activity_log="$workspace/.ralph/activity.log"
+  local errors_log="$workspace/.ralph/errors.log"
+
+  list_descendants() {
+    local root="$1"
+    local kids
+    kids=$(pgrep -P "$root" 2>/dev/null) || true
+    for k in $kids; do
+      echo "$k"
+      list_descendants "$k"
+    done
+  }
+
+  while kill -0 "$agent_pid" 2>/dev/null; do
+    sleep 3
+
+    local blocking=""
+    local blocking_pid=""
+
+    local pids=""
+    pids="$(list_descendants "$agent_pid")"
+
+    for pid in $pids; do
+      local cmdline
+      cmdline=$(ps -p "$pid" -o args= 2>/dev/null) || cmdline=""
+      [[ -z "$cmdline" ]] && continue
+
+      if [[ "$cmdline" =~ (^|[[:space:]])npm[[:space:]]+init($|[[:space:]]) ]] && [[ ! "$cmdline" =~ (-y|--yes) ]]; then
+        blocking="npm init (use 'npm init -y' OR skip if package.json exists)"
+        blocking_pid="$pid"
+        break
+      fi
+      if [[ "$cmdline" =~ (^|[[:space:]])git[[:space:]]+commit($|[[:space:]]) ]] && [[ ! "$cmdline" =~ (-m|--message|-F|--file|--no-edit) ]]; then
+        blocking="git commit (use 'git commit -m \"msg\"' or '--no-edit' for amend)"
+        blocking_pid="$pid"
+        break
+      fi
+      if [[ "$cmdline" =~ (^|[[:space:]])node($|[[:space:]]*$) ]]; then
+        blocking="node REPL (use 'node script.js')"
+        blocking_pid="$pid"
+        break
+      fi
+      if [[ "$cmdline" =~ (^|[[:space:]])python3?($|[[:space:]]*$) ]]; then
+        blocking="python REPL (use 'python script.py')"
+        blocking_pid="$pid"
+        break
+      fi
+    done
+
+    if [[ -n "$blocking" && -n "$blocking_pid" ]]; then
+      echo "[$(date '+%H:%M:%S')] 🚨 WATCHDOG: Blocking process detected: $blocking (pid=$blocking_pid)" >> "$activity_log"
+      echo "🚨 WATCHDOG: Blocking process detected: $blocking" >&2
+
+      # Also write to errors.log so next iteration sees it.
+      {
+        echo ""
+        echo "## BLOCKED: Interactive Command"
+        echo "- **Command**: $blocking"
+        echo "- **Action**: Process killed by watchdog"
+        echo "- **Fix**: Use non-interactive alternatives (npm init -y, git commit -m \"msg\")"
+        echo ""
+      } >> "$errors_log" 2>/dev/null || true
+
+      kill -9 "$blocking_pid" 2>/dev/null || true
+      echo "GUTTER" > "$fifo" 2>/dev/null || true
+      return
+    fi
+  done
+}
+
 # =============================================================================
 # LOGGING
 # =============================================================================
@@ -417,6 +494,10 @@ run_iteration() {
     eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
   ) &
   local agent_pid=$!
+
+  # Start watchdog to catch blocking interactive commands (e.g. npm init)
+  run_watchdog "$agent_pid" "$fifo" "$workspace" &
+  local watchdog_pid=$!
   
   # Read signals from parser
   local signal=""
@@ -453,6 +534,10 @@ run_iteration() {
   
   # Wait for agent to finish
   wait $agent_pid 2>/dev/null || true
+
+  # Stop watchdog
+  kill $watchdog_pid 2>/dev/null || true
+  wait $watchdog_pid 2>/dev/null || true
   
   # Stop spinner and clear line
   kill_tree $spinner_pid
