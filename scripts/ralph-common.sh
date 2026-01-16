@@ -88,6 +88,22 @@ get_health_emoji() {
   fi
 }
 
+# Kill a process and all its descendants
+kill_tree() {
+  local pid="$1"
+  local signal="${2:-TERM}"
+  
+  # First kill all children recursively
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child" "$signal"
+  done
+  
+  # Then kill the process itself
+  kill "-$signal" "$pid" 2>/dev/null || true
+}
+
 # =============================================================================
 # LOGGING
 # =============================================================================
@@ -409,7 +425,7 @@ run_iteration() {
       "ROTATE")
         printf "\r\033[K" >&2  # Clear spinner line
         echo "🔄 Context rotation triggered - stopping agent..." >&2
-        kill $agent_pid 2>/dev/null || true
+        kill_tree $agent_pid
         signal="ROTATE"
         break
         ;;
@@ -420,15 +436,17 @@ run_iteration() {
         ;;
       "GUTTER")
         printf "\r\033[K" >&2  # Clear spinner line
-        echo "🚨 Gutter detected - agent may be stuck..." >&2
+        echo "🚨 Gutter detected - killing stuck agent..." >&2
+        kill_tree $agent_pid
         signal="GUTTER"
-        # Don't kill yet, let agent try to recover
+        break
         ;;
       "COMPLETE")
         printf "\r\033[K" >&2  # Clear spinner line
         echo "✅ Agent signaled completion!" >&2
+        kill_tree $agent_pid
         signal="COMPLETE"
-        # Let agent finish gracefully
+        break
         ;;
     esac
   done < "$fifo"
@@ -437,7 +455,7 @@ run_iteration() {
   wait $agent_pid 2>/dev/null || true
   
   # Stop spinner and clear line
-  kill $spinner_pid 2>/dev/null || true
+  kill_tree $spinner_pid
   wait $spinner_pid 2>/dev/null || true
   printf "\r\033[K" >&2  # Clear spinner line
   
