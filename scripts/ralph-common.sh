@@ -435,7 +435,17 @@ spinner() {
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   while true; do
-    printf "\r  🐛 Agent working... %s  (watch: tail -f %s/.ralph/activity.log)" "${spin:i++%${#spin}:1}" "$workspace" >&2
+    # Avoid line-wrapping (which creates "repeated" lines) by:
+    # - clearing the line every frame
+    # - showing a short, relative watch command
+    # - truncating to terminal width
+    local cols msg
+    cols="$(tput cols 2>/dev/null || echo 80)"
+    msg="  🐛 Agent working... ${spin:i++%${#spin}:1}  (watch: tail -f .ralph/activity.log)"
+    if [[ "$cols" =~ ^[0-9]+$ ]] && (( ${#msg} >= cols )); then
+      msg="${msg:0:cols-1}"
+    fi
+    printf "\r\033[2K%s" "$msg" >&2
     sleep 0.1
   done
 }
