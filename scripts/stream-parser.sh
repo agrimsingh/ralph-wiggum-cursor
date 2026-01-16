@@ -207,6 +207,26 @@ process_line() {
     "tool_call")
       if [[ "$subtype" == "started" ]]; then
         TOOL_CALLS=$((TOOL_CALLS + 1))
+
+        # Detect interactive shell commands that will block forever
+        local shell_cmd
+        shell_cmd=$(echo "$line" | jq -r '.tool_call.shellToolCall.args.command // empty' 2>/dev/null) || shell_cmd=""
+        if [[ -n "$shell_cmd" ]]; then
+          # Check for known interactive commands
+          if [[ "$shell_cmd" =~ ^npm[[:space:]]+init($|[[:space:]]+[^-]) ]] && [[ ! "$shell_cmd" =~ -y ]]; then
+            log_error "🚨 BLOCKED: Interactive command detected: $shell_cmd (use 'npm init -y' instead)"
+            echo "GUTTER" 2>/dev/null || true
+          elif [[ "$shell_cmd" =~ ^git[[:space:]]+commit($|[[:space:]]) ]] && [[ ! "$shell_cmd" =~ -m ]]; then
+            log_error "🚨 BLOCKED: Interactive command detected: $shell_cmd (use 'git commit -m \"message\"' instead)"
+            echo "GUTTER" 2>/dev/null || true
+          elif [[ "$shell_cmd" =~ ^python($|[[:space:]]*$) ]] || [[ "$shell_cmd" =~ ^python3($|[[:space:]]*$) ]]; then
+            log_error "🚨 BLOCKED: Interactive command detected: $shell_cmd (use 'python script.py' instead)"
+            echo "GUTTER" 2>/dev/null || true
+          elif [[ "$shell_cmd" =~ ^node($|[[:space:]]*$) ]]; then
+            log_error "🚨 BLOCKED: Interactive command detected: $shell_cmd (use 'node script.js' instead)"
+            echo "GUTTER" 2>/dev/null || true
+          fi
+        fi
         
       elif [[ "$subtype" == "completed" ]]; then
         # Handle read tool completion
