@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ralph shim for git
+# - Prevents interactive editor launches (e.g., `git commit` without -m)
+# - Avoids interactive rebases
+
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+real_git() {
+  local filtered_path=""
+  local IFS=":"
+  for p in $PATH; do
+    [[ "$p" == "$WRAPPER_DIR" ]] && continue
+    filtered_path+="${filtered_path:+:}$p"
+  done
+  PATH="$filtered_path" command -v git || true
+}
+
+REAL_GIT="$(real_git)"
+if [[ -z "${REAL_GIT}" ]]; then
+  echo "ralph git shim: real git not found" >&2
+  exit 127
+fi
+
+subcmd="${1:-}"
+shift || true
+
+if [[ "$subcmd" == "rebase" ]]; then
+  for a in "$@"; do
+    if [[ "$a" == "-i" || "$a" == "--interactive" ]]; then
+      echo "ralph git shim: blocked interactive rebase (use non-interactive alternatives)" >&2
+      exit 2
+    fi
+  done
+fi
+
+if [[ "$subcmd" == "commit" ]]; then
+  has_msg=false
+  has_file=false
+  has_no_edit=false
+  has_amend=false
+  for a in "$@"; do
+    [[ "$a" == "-m" || "$a" == "--message" ]] && has_msg=true
+    [[ "$a" == "-F" || "$a" == "--file" ]] && has_file=true
+    [[ "$a" == "--no-edit" ]] && has_no_edit=true
+    [[ "$a" == "--amend" ]] && has_amend=true
+  done
+
+  # If amending without an explicit message, force --no-edit to avoid editor.
+  if [[ "$has_amend" == "true" && "$has_msg" == "false" && "$has_file" == "false" && "$has_no_edit" == "false" ]]; then
+    exec "$REAL_GIT" commit --no-edit "$@"
+  fi
+
+  # If committing without a message/file, add a default message to avoid editor.
+  if [[ "$has_msg" == "false" && "$has_file" == "false" ]]; then
+    exec "$REAL_GIT" commit -m "ralph: checkpoint" "$@"
+  fi
+fi
+
+exec "$REAL_GIT" "$subcmd" "$@"

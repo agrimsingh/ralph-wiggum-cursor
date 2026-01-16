@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ralph shim for node - blocks launching an interactive REPL.
+
+WRAPPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+real_node() {
+  local filtered_path=""
+  local IFS=":"
+  for p in $PATH; do
+    [[ "$p" == "$WRAPPER_DIR" ]] && continue
+    filtered_path+="${filtered_path:+:}$p"
+  done
+  PATH="$filtered_path" command -v node || true
+}
+
+REAL_NODE="$(real_node)"
+if [[ -z "${REAL_NODE}" ]]; then
+  echo "ralph node shim: real node not found" >&2
+  exit 127
+fi
+
+if [[ $# -eq 0 ]]; then
+  echo "ralph node shim: blocked interactive 'node' REPL (provide a script)" >&2
+  exit 2
+fi
+
+exec "$REAL_NODE" "$@"

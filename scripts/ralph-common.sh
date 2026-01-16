@@ -491,6 +491,17 @@ run_iteration() {
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
   (
+    # Harden the execution environment against interactive commands.
+    # Also prepend shimmed binaries so calls like `npm init` cannot block.
+    export PATH="$script_dir/shims:$PATH"
+    export CI=1
+    export npm_config_yes=true
+    export npm_config_audit=false
+    export npm_config_fund=false
+    export GIT_TERMINAL_PROMPT=0
+    export GIT_EDITOR=:
+    export EDITOR=:
+    export PAGER=cat
     eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
   ) &
   local agent_pid=$!
