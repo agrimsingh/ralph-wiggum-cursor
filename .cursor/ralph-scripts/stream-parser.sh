@@ -2,14 +2,10 @@
 # Ralph Wiggum: Stream Parser
 #
 # Parses cursor-agent stream-json output in real-time.
-# Tracks token usage, detects failures/gutter, writes to per-run state directory.
+# Tracks token usage, detects failures/gutter, writes to .ralph/ logs.
 #
 # Usage:
-#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace /path/to/run_dir
-#
-# Arguments:
-#   $1 - workspace: path to the workspace root
-#   $2 - run_dir: path to the per-run state directory (.ralph/runs/<runId>/)
+#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
 #
 # Outputs to stdout:
 #   - ROTATE when threshold hit (80k tokens)
@@ -17,17 +13,17 @@
 #   - GUTTER when stuck pattern detected
 #   - COMPLETE when agent outputs <ralph>COMPLETE</ralph>
 #
-# Writes to run_dir:
+# Writes to .ralph/:
 #   - activity.log: all operations with context health
 #   - errors.log: failures and gutter detection
 
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
-RUN_DIR="${2:-$WORKSPACE/.ralph}"
+RALPH_DIR="$WORKSPACE/.ralph"
 
-# Ensure run directory exists
-mkdir -p "$RUN_DIR"
+# Ensure .ralph directory exists
+mkdir -p "$RALPH_DIR"
 
 # Thresholds
 WARN_THRESHOLD=70000
@@ -69,28 +65,22 @@ calc_tokens() {
   echo $((total_bytes / 4))
 }
 
-# Log to activity.log in run directory AND stream to stderr for inline display
+# Log to activity.log
 log_activity() {
   local message="$1"
   local timestamp=$(date '+%H:%M:%S')
   local tokens=$(calc_tokens)
   local emoji=$(get_health_emoji $tokens)
   
-  local log_line="[$timestamp] $emoji $message"
-  
-  # Write to activity.log
-  echo "$log_line" >> "$RUN_DIR/activity.log"
-  
-  # Also stream to stderr for inline terminal display
-  echo "$log_line" >&2
+  echo "[$timestamp] $emoji $message" >> "$RALPH_DIR/activity.log"
 }
 
-# Log to errors.log in run directory
+# Log to errors.log
 log_error() {
   local message="$1"
   local timestamp=$(date '+%H:%M:%S')
   
-  echo "[$timestamp] $message" >> "$RUN_DIR/errors.log"
+  echo "[$timestamp] $message" >> "$RALPH_DIR/errors.log"
 }
 
 # Check and log token status
@@ -109,13 +99,7 @@ log_token_status() {
   fi
   
   local breakdown="[read:$((BYTES_READ/1024))KB write:$((BYTES_WRITTEN/1024))KB assist:$((ASSISTANT_CHARS/1024))KB shell:$((SHELL_OUTPUT_CHARS/1024))KB]"
-  local log_line="[$timestamp] $emoji $status_msg $breakdown"
-  
-  # Write to activity.log
-  echo "$log_line" >> "$RUN_DIR/activity.log"
-  
-  # Also stream to stderr for inline terminal display
-  echo "$log_line" >&2
+  echo "[$timestamp] $emoji $status_msg $breakdown" >> "$RALPH_DIR/activity.log"
 }
 
 # Check for gutter conditions
@@ -177,41 +161,6 @@ track_file_write() {
   if [[ $count -ge 5 ]]; then
     log_error "⚠️ THRASHING: $path written ${count}x in 10 min"
     echo "GUTTER" 2>/dev/null || true
-  fi
-}
-
-# Detect and log Beads task operations (start/finish)
-detect_beads_operation() {
-  local cmd="$1"
-  local stdout="$2"
-  
-  # Detect task start: bd update <id> --status in_progress
-  if [[ "$cmd" == *"bd update"* ]] && [[ "$cmd" == *"--status in_progress"* ]] && [[ "$cmd" == *"--json"* ]]; then
-    # Parse JSON output to extract ID and title
-    local task_id=$(echo "$stdout" | jq -r '.[0].id // .id // empty' 2>/dev/null) || task_id=""
-    local task_title=$(echo "$stdout" | jq -r '.[0].title // .title // empty' 2>/dev/null) || task_title=""
-    
-    if [[ -n "$task_id" ]]; then
-      if [[ -n "$task_title" ]]; then
-        log_activity "🎯 TASK START: $task_id - $task_title"
-      else
-        log_activity "🎯 TASK START: $task_id"
-      fi
-    fi
-    
-  # Detect task finish: bd close <id>
-  elif [[ "$cmd" == *"bd close"* ]] && [[ "$cmd" == *"--json"* ]]; then
-    # Parse JSON output to extract ID and title
-    local task_id=$(echo "$stdout" | jq -r '.[0].id // .id // empty' 2>/dev/null) || task_id=""
-    local task_title=$(echo "$stdout" | jq -r '.[0].title // .title // empty' 2>/dev/null) || task_title=""
-    
-    if [[ -n "$task_id" ]]; then
-      if [[ -n "$task_title" ]]; then
-        log_activity "✅ TASK FINISH: $task_id - $task_title"
-      else
-        log_activity "✅ TASK FINISH: $task_id"
-      fi
-    fi
   fi
 }
 
@@ -290,31 +239,6 @@ process_line() {
           # Track for thrashing detection
           track_file_write "$path"
           
-        # Handle strReplace/edit tool completion
-        elif echo "$line" | jq -e '.tool_call.strReplaceToolCall.result.success' > /dev/null 2>&1; then
-          local path=$(echo "$line" | jq -r '.tool_call.strReplaceToolCall.args.path // "unknown"' 2>/dev/null) || path="unknown"
-          local old_string=$(echo "$line" | jq -r '.tool_call.strReplaceToolCall.args.old_string // ""' 2>/dev/null) || old_string=""
-          local new_string=$(echo "$line" | jq -r '.tool_call.strReplaceToolCall.args.new_string // ""' 2>/dev/null) || new_string=""
-          
-          # Estimate bytes changed
-          local bytes=$((${#old_string} + ${#new_string}))
-          BYTES_WRITTEN=$((BYTES_WRITTEN + bytes))
-          
-          # Count line changes (approximate)
-          local old_lines=$(echo "$old_string" | wc -l)
-          local new_lines=$(echo "$new_string" | wc -l)
-          
-          log_activity "EDIT $path (~$((old_lines + new_lines)) lines changed)"
-          
-          # Track for thrashing detection
-          track_file_write "$path"
-          
-        # Handle delete tool completion
-        elif echo "$line" | jq -e '.tool_call.deleteToolCall.result.success' > /dev/null 2>&1; then
-          local path=$(echo "$line" | jq -r '.tool_call.deleteToolCall.args.path // "unknown"' 2>/dev/null) || path="unknown"
-          
-          log_activity "DELETE $path"
-          
         # Handle shell tool completion
         elif echo "$line" | jq -e '.tool_call.shellToolCall.result' > /dev/null 2>&1; then
           local cmd=$(echo "$line" | jq -r '.tool_call.shellToolCall.args.command // "unknown"' 2>/dev/null) || cmd="unknown"
@@ -324,11 +248,6 @@ process_line() {
           local stderr=$(echo "$line" | jq -r '.tool_call.shellToolCall.result.stderr // ""' 2>/dev/null) || stderr=""
           local output_chars=$((${#stdout} + ${#stderr}))
           SHELL_OUTPUT_CHARS=$((SHELL_OUTPUT_CHARS + output_chars))
-          
-          # Detect Beads operations before general logging
-          if [[ $exit_code -eq 0 ]]; then
-            detect_beads_operation "$cmd" "$stdout"
-          fi
           
           if [[ $exit_code -eq 0 ]]; then
             if [[ $output_chars -gt 1024 ]]; then
@@ -358,21 +277,10 @@ process_line() {
 # Main loop: read JSON lines from stdin
 main() {
   # Initialize activity log for this session
-  local header_line=""
-  header_line+="═══════════════════════════════════════════════════════════════"
-  local start_line="Ralph Session Started: $(date)"
-  
-  # Write to activity.log
-  echo "" >> "$RUN_DIR/activity.log"
-  echo "$header_line" >> "$RUN_DIR/activity.log"
-  echo "$start_line" >> "$RUN_DIR/activity.log"
-  echo "$header_line" >> "$RUN_DIR/activity.log"
-  
-  # Also stream to stderr for inline display
-  echo "" >&2
-  echo "$header_line" >&2
-  echo "$start_line" >&2
-  echo "$header_line" >&2
+  echo "" >> "$RALPH_DIR/activity.log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
+  echo "Ralph Session Started: $(date)" >> "$RALPH_DIR/activity.log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
   
   # Track last token log time
   local last_token_log=$(date +%s)

@@ -11,6 +11,9 @@ echo "🐛 Ralph Wiggum Installer"
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
 
+# Track if we have critical missing dependencies
+BEADS_MISSING=false
+
 # Check if we're in a git repo
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
   echo "⚠️  Warning: Not in a git repository."
@@ -24,6 +27,47 @@ fi
 if ! command -v cursor-agent &> /dev/null; then
   echo "⚠️  Warning: cursor-agent CLI not found."
   echo "   Install via: curl https://cursor.com/install -fsS | bash"
+  echo ""
+fi
+
+# =============================================================================
+# CHECK FOR BEADS (REQUIRED)
+# =============================================================================
+
+if ! command -v bd &> /dev/null; then
+  BEADS_MISSING=true
+  echo "❌ bd (Beads) CLI not found - REQUIRED"
+  echo ""
+  echo "   Ralph uses Beads for task tracking. Install via one of:"
+  echo ""
+  echo "   # Option 1: curl installer (recommended)"
+  echo "   curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash"
+  echo ""
+  echo "   # Option 2: Homebrew (macOS/Linux)"
+  echo "   brew install steveyegge/beads/bd"
+  echo ""
+  echo "   # Option 3: npm"
+  echo "   npm install -g @beads/bd"
+  echo ""
+  echo "   After installing, run: bd init --stealth --quiet"
+  echo ""
+  echo "   Learn more: https://github.com/steveyegge/beads"
+  echo ""
+else
+  echo "✓ bd (Beads) CLI found"
+  
+  # Initialize Beads in stealth mode if not already initialized
+  if ! bd info --json &>/dev/null 2>&1; then
+    echo "📦 Initializing Beads in stealth mode..."
+    if bd init --stealth --quiet 2>/dev/null; then
+      echo "✓ Beads initialized (stealth mode - no repo commits)"
+    else
+      echo "⚠️  Could not initialize Beads automatically."
+      echo "   Run manually: bd init --stealth --quiet"
+    fi
+  else
+    echo "✓ Beads already initialized"
+  fi
   echo ""
 fi
 
@@ -87,16 +131,14 @@ mkdir -p .ralph
 
 echo "📥 Downloading Ralph scripts..."
 
-SCRIPTS=(
+# Internal scripts (not user-facing)
+INTERNAL_SCRIPTS=(
+  "ralph"
   "ralph-common.sh"
-  "ralph-setup.sh"
-  "ralph-loop.sh"
-  "ralph-once.sh"
   "stream-parser.sh"
-  "init-ralph.sh"
 )
 
-for script in "${SCRIPTS[@]}"; do
+for script in "${INTERNAL_SCRIPTS[@]}"; do
   if curl -fsSL "$REPO_RAW/scripts/$script" -o ".cursor/ralph-scripts/$script" 2>/dev/null; then
     chmod +x ".cursor/ralph-scripts/$script"
   else
@@ -104,16 +146,28 @@ for script in "${SCRIPTS[@]}"; do
   fi
 done
 
-echo "✓ Scripts installed to .cursor/ralph-scripts/"
+echo "✓ Internal scripts installed to .cursor/ralph-scripts/"
+
+# Download root launcher
+echo "📥 Downloading ralph launcher..."
+if curl -fsSL "$REPO_RAW/ralph" -o "./ralph" 2>/dev/null; then
+  chmod +x "./ralph"
+  echo "✓ ralph installed to ./ralph"
+else
+  echo "   ⚠️  Could not download ralph launcher"
+fi
 
 
 # =============================================================================
-# INITIALIZE .ralph/ STATE
+# INITIALIZE .ralph/ STATE (shared guardrails only)
 # =============================================================================
 
 echo "📁 Initializing .ralph/ state directory..."
 
-cat > .ralph/guardrails.md << 'EOF'
+# Only create guardrails.md at the top level (shared across runs)
+# Per-run state (activity.log, errors.log, progress.md) is created in .ralph/runs/<runId>/
+if [[ ! -f ".ralph/guardrails.md" ]]; then
+  cat > .ralph/guardrails.md << 'EOF'
 # Ralph Guardrails (Signs)
 
 > Lessons learned from past failures. READ THESE BEFORE ACTING.
@@ -142,105 +196,9 @@ cat > .ralph/guardrails.md << 'EOF'
 (Signs added from observed failures will appear below)
 
 EOF
-
-cat > .ralph/progress.md << 'EOF'
-# Progress Log
-
-> Updated by the agent after significant work.
-
-## Summary
-
-- Iterations completed: 0
-- Current status: Initialized
-
-## How This Works
-
-Progress is tracked in THIS FILE, not in LLM context.
-When context is rotated (fresh agent), the new agent reads this file.
-This is how Ralph maintains continuity across iterations.
-
-## Session History
-
-EOF
-
-cat > .ralph/errors.log << 'EOF'
-# Error Log
-
-> Failures detected by stream-parser. Use to update guardrails.
-
-EOF
-
-cat > .ralph/activity.log << 'EOF'
-# Activity Log
-
-> Real-time tool call logging from stream-parser.
-
-EOF
-
-echo "0" > .ralph/.iteration
+fi
 
 echo "✓ .ralph/ initialized"
-
-# =============================================================================
-# CREATE RALPH_TASK.md TEMPLATE
-# =============================================================================
-
-if [[ ! -f "RALPH_TASK.md" ]]; then
-  echo "📝 Creating RALPH_TASK.md template..."
-  cat > RALPH_TASK.md <<'TASKEOF'
----
-task: Build a CLI todo app in TypeScript
-test_command: "npx ts-node todo.ts list"
----
-
-# Task: CLI Todo App (TypeScript)
-
-Build a simple command-line todo application in TypeScript.
-
-## Requirements
-
-1. Single file: `todo.ts`
-2. Uses `todos.json` for persistence
-3. Three commands: add, list, done
-4. TypeScript with proper types
-
-## Success Criteria
-
-1. [ ] `npx ts-node todo.ts add "Buy milk"` adds a todo and confirms
-2. [ ] `npx ts-node todo.ts list` shows all todos with IDs and status
-3. [ ] `npx ts-node todo.ts done 1` marks todo 1 as complete
-4. [ ] Todos survive script restart (JSON persistence)
-5. [ ] Invalid commands show helpful usage message
-6. [ ] Code has proper TypeScript types (no `any`)
-
-## Example Output
-
-```
-$ npx ts-node todo.ts add "Buy milk"
-✓ Added: "Buy milk" (id: 1)
-
-$ npx ts-node todo.ts list
-1. [ ] Buy milk
-
-$ npx ts-node todo.ts done 1
-✓ Completed: "Buy milk"
-```
-
----
-
-## Ralph Instructions
-
-1. Work on the next incomplete criterion (marked [ ])
-2. Check off completed criteria (change [ ] to [x])
-3. Run tests after changes
-4. Commit your changes frequently
-5. When ALL criteria are [x], output: `<ralph>COMPLETE</ralph>`
-6. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`
-TASKEOF
-  echo "✓ Created RALPH_TASK.md with example task"
-else
-  echo "✓ RALPH_TASK.md already exists (not overwritten)"
-fi
 
 # =============================================================================
 # UPDATE .gitignore
@@ -252,10 +210,19 @@ if [[ -f ".gitignore" ]]; then
     echo "# Ralph config (may contain API key)" >> .gitignore
     echo ".cursor/ralph-config.json" >> .gitignore
   fi
+  # Add RALPH_TASK.md as a local default plan doc (not versioned by default)
+  if ! grep -q "^RALPH_TASK.md$" .gitignore 2>/dev/null; then
+    echo "" >> .gitignore
+    echo "# Ralph default task file (local plan doc - use --task-file for versioned plans)" >> .gitignore
+    echo "RALPH_TASK.md" >> .gitignore
+  fi
 else
   cat > .gitignore <<'EOF'
 # Ralph config (may contain API key)
 .cursor/ralph-config.json
+
+# Ralph default task file (local plan doc - use --task-file for versioned plans)
+RALPH_TASK.md
 EOF
 fi
 echo "✓ Updated .gitignore"
@@ -266,35 +233,67 @@ echo "✓ Updated .gitignore"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
-echo "✅ Ralph installed!"
+if [[ "$BEADS_MISSING" == "true" ]]; then
+  echo "⚠️  Ralph installed (with warnings)"
+else
+  echo "✅ Ralph installed!"
+fi
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
+
+if [[ "$BEADS_MISSING" == "true" ]]; then
+  echo "⚠️  IMPORTANT: Beads (bd) is required but not installed!"
+  echo ""
+  echo "   Install Beads first:"
+  echo "   curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash"
+  echo ""
+  echo "   Then initialize: bd init --stealth --quiet"
+  echo ""
+fi
+
 echo "Files created:"
 echo ""
-echo "  📁 .cursor/ralph-scripts/"
-echo "     ├── ralph-setup.sh          - Main entry (interactive)"
-echo "     ├── ralph-loop.sh           - CLI mode (for scripting)"
-echo "     ├── ralph-once.sh           - Single iteration (testing)"
-echo "     └── ...                     - Other utilities"
+echo "  ./ralph                        - Main entry point"
 echo ""
-echo "  📁 .ralph/                     - State files (tracked in git)"
-echo "     ├── guardrails.md           - Lessons learned"
+echo "  📁 .cursor/ralph-scripts/      - Internal scripts"
+echo "     ├── ralph                   - CLI implementation"
+echo "     ├── ralph-common.sh         - Shared functions"
+echo "     └── stream-parser.sh        - Token tracking"
+echo ""
+echo "  📁 .ralph/"
+echo "     └── guardrails.md           - Lessons learned (shared)"
+echo ""
+echo "  📁 .ralph/runs/<runId>/        - Per-run state (created on first run)"
 echo "     ├── progress.md             - Progress log"
 echo "     ├── activity.log            - Tool call log"
-echo "     └── errors.log              - Failure log"
-echo ""
-echo "  📄 RALPH_TASK.md               - Your task definition (edit this!)"
+echo "     ├── errors.log              - Failure log"
+echo "     ├── beads.label             - Beads label for this run"
+echo "     └── beads.root_id           - Root epic ID"
 echo ""
 echo "Next steps:"
-echo "  1. Edit RALPH_TASK.md to define your actual task"
-echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+if [[ "$BEADS_MISSING" == "true" ]]; then
+  echo "  1. Install Beads (see above)"
+  echo "  2. Create a task file:"
+  echo "     ./ralph --print-template > RALPH_TASK.md"
+  echo "  3. Run: ./ralph"
+else
+  echo "  1. Create a task file:"
+  echo "     ./ralph --print-template > RALPH_TASK.md"
+  echo "  2. Run: ./ralph"
+fi
 echo ""
-echo "Alternative commands:"
-echo "  • ralph-once.sh    - Test with single iteration first"
-echo "  • ralph-loop.sh    - CLI mode with flags (for scripting)"
+echo "Examples:"
+echo "  ./ralph                              # Run with RALPH_TASK.md"
+echo "  ./ralph --task-file plans/api.md    # Run with custom task file"
+echo "  ./ralph --once                       # Single iteration (testing)"
+echo "  ./ralph --limit=10                   # Max 10 iterations"
+echo "  ./ralph --print-template             # Print task template"
 echo ""
 echo "Monitor progress:"
-echo "  tail -f .ralph/activity.log"
+echo "  bd list --json                       # See all Beads tasks"
+echo "  tail -f .ralph/runs/<runId>/activity.log"
 echo ""
-echo "Learn more: https://ghuntley.com/ralph/"
+echo "Learn more:"
+echo "  Ralph: https://ghuntley.com/ralph/"
+echo "  Beads: https://github.com/steveyegge/beads"
 echo "═══════════════════════════════════════════════════════════════════"

@@ -1,0 +1,697 @@
+#!/bin/bash
+# Ralph Wiggum: Single entry point for autonomous AI development
+#
+# Usage:
+#   ralph                              # Run loop with RALPH_TASK.md
+#   ralph --task-file plans/api.md     # Run loop with custom task file
+#   ralph --once                       # Run single iteration then stop
+#   ralph --limit=10                   # Run at most 10 iterations
+#   ralph --print-template             # Print task template to stdout
+#   ralph --init                       # Initialize Ralph in current directory
+#
+# See: https://ghuntley.com/ralph/
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source common functions
+source "$SCRIPT_DIR/ralph-common.sh"
+
+# =============================================================================
+# FLAG PARSING
+# =============================================================================
+
+show_help() {
+  cat << 'EOF'
+Ralph Wiggum: Autonomous AI Development
+
+Usage:
+  ralph [command] [options] [workspace]
+
+Commands:
+  init                   Initialize Ralph in current directory
+  once                   Run single iteration then stop (for testing)
+  template               Print task file template to stdout
+  help                   Show this help
+
+Options:
+  --task-file, -f FILE   Task/plan file (default: RALPH_TASK.md)
+  --run-id, -r ID        Run ID for state isolation (default: derived from task file)
+  --limit N              Max iterations (default: 20)
+  --model, -m MODEL      Model to use (default: opus-4.5-thinking)
+  --branch NAME          Create and work on a new branch
+  --pr                   Open PR when complete (requires --branch)
+  --yes, -y              Skip confirmation prompts
+
+Examples:
+  # Run with default task file (RALPH_TASK.md)
+  ralph
+
+  # Run with custom task file
+  ralph --task-file plans/api.md
+
+  # Test single iteration before going AFK
+  ralph once
+
+  # Limit iterations
+  ralph --limit=10
+
+  # Get the task template
+  ralph template > RALPH_TASK.md
+
+  # Initialize Ralph
+  ralph init
+
+  # Parallel runs with different task files
+  ralph --task-file plans/api.md --run-id api &
+  ralph --task-file plans/ui.md --run-id ui &
+
+Environment:
+  RALPH_MODEL            Override default model
+  RALPH_TASK_FILE        Override default task file
+  RALPH_RUN_ID           Override run ID
+  MAX_ITERATIONS         Override max iterations
+EOF
+}
+
+# Parse command line arguments
+WORKSPACE=""
+RUN_ONCE=false
+PRINT_TEMPLATE=false
+DO_INIT=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task-file=*)
+      TASK_FILE="${1#*=}"
+      shift
+      ;;
+    --task-file|-f)
+      TASK_FILE="$2"
+      shift 2
+      ;;
+    --run-id=*)
+      RUN_ID="${1#*=}"
+      shift
+      ;;
+    --run-id|-r)
+      RUN_ID="$2"
+      shift 2
+      ;;
+    --limit=*)
+      MAX_ITERATIONS="${1#*=}"
+      shift
+      ;;
+    --limit|-n)
+      MAX_ITERATIONS="$2"
+      shift 2
+      ;;
+    --model=*)
+      MODEL="${1#*=}"
+      shift
+      ;;
+    --model|-m)
+      MODEL="$2"
+      shift 2
+      ;;
+    --branch=*)
+      USE_BRANCH="${1#*=}"
+      shift
+      ;;
+    --branch)
+      USE_BRANCH="$2"
+      shift 2
+      ;;
+    --pr)
+      OPEN_PR=true
+      shift
+      ;;
+    --yes|-y)
+      SKIP_CONFIRM=true
+      shift
+      ;;
+    --once|once)
+      RUN_ONCE=true
+      shift
+      ;;
+    --print-template|template)
+      PRINT_TEMPLATE=true
+      shift
+      ;;
+    --init|init)
+      DO_INIT=true
+      shift
+      ;;
+    --help|-h|help)
+      show_help
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      echo "Use --help for usage."
+      exit 1
+      ;;
+    *)
+      # Positional argument = workspace
+      WORKSPACE="$1"
+      shift
+      ;;
+  esac
+done
+
+# =============================================================================
+# PRINT TEMPLATE MODE
+# =============================================================================
+
+if [[ "$PRINT_TEMPLATE" == "true" ]]; then
+  # Look for template in assets directory
+  SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+  if [[ -f "$SKILL_DIR/assets/RALPH_TASK_TEMPLATE.md" ]]; then
+    cat "$SKILL_DIR/assets/RALPH_TASK_TEMPLATE.md"
+  else
+    cat << 'EOF'
+---
+task: [Brief description of the task]
+test_command: "npm test"
+---
+
+# Task: [Task Name]
+
+## Overview
+
+[Describe what needs to be built/fixed/improved]
+
+## Requirements
+
+### Functional Requirements
+
+1. [Requirement 1]
+2. [Requirement 2]
+3. [Requirement 3]
+
+### Non-Functional Requirements
+
+- [Performance, security, etc.]
+
+## Constraints
+
+- [Technology constraints]
+- [Time constraints]
+- [Other limitations]
+
+## Success Criteria
+
+The following will be converted to Beads tasks when Ralph first runs.
+Progress is tracked via `bd ready`, `bd close`, etc.
+
+1. [Verifiable criterion 1]
+2. [Verifiable criterion 2]
+3. [Verifiable criterion 3]
+
+## Notes
+
+[Any additional context, links to documentation, etc.]
+
+---
+
+## Ralph Instructions
+
+When working on this task:
+
+1. Check `bd ready --label ralph:<runId> --json` to find the next available task
+2. Claim it: `bd update <id> --status in_progress --json`
+3. Work on the task
+4. Close when done: `bd close <id> --reason "description" --json`
+5. Sync: `bd sync`
+6. Read `.ralph/runs/<runId>/progress.md` to see what's been done
+7. Check `.ralph/guardrails.md` for signs to follow
+8. Update `.ralph/runs/<runId>/progress.md` with your progress
+9. Commit your changes with descriptive messages
+10. When all tasks are closed, output: `<ralph>COMPLETE</ralph>`
+11. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`
+EOF
+  fi
+  exit 0
+fi
+
+# =============================================================================
+# INIT MODE
+# =============================================================================
+
+if [[ "$DO_INIT" == "true" ]]; then
+  echo "═══════════════════════════════════════════════════════════════════"
+  echo "Ralph Wiggum: Initializing"
+  echo "═══════════════════════════════════════════════════════════════════"
+  echo ""
+  
+  # Track missing dependencies
+  BEADS_MISSING=false
+  
+  # Check if we're in a git repo
+  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo "Warning: Not in a git repository."
+    echo "   Ralph works best with git for state persistence."
+    echo ""
+    read -p "Continue anyway? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      exit 1
+    fi
+  fi
+  
+  # Check for cursor-agent CLI
+  if ! command -v cursor-agent &> /dev/null; then
+    echo "Warning: cursor-agent CLI not found."
+    echo "   Install via: curl https://cursor.com/install -fsS | bash"
+    echo ""
+  fi
+  
+  # Check for Beads
+  if ! command -v bd &> /dev/null; then
+    BEADS_MISSING=true
+    echo "bd (Beads) CLI not found - REQUIRED"
+    echo ""
+    echo "   Ralph uses Beads for task tracking. Install via one of:"
+    echo ""
+    echo "   # Option 1: curl installer (recommended)"
+    echo "   curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash"
+    echo ""
+    echo "   # Option 2: Homebrew (macOS/Linux)"
+    echo "   brew install steveyegge/beads/bd"
+    echo ""
+    echo "   # Option 3: npm"
+    echo "   npm install -g @beads/bd"
+    echo ""
+    echo "   After installing, run: bd init --stealth --quiet"
+    echo ""
+  else
+    echo "bd (Beads) CLI found"
+    
+    # Initialize Beads in stealth mode if not already initialized
+    if ! bd info --json &>/dev/null 2>&1; then
+      echo "Initializing Beads in stealth mode..."
+      if bd init --stealth --quiet 2>/dev/null; then
+        echo "Beads initialized (stealth mode - no repo commits)"
+      else
+        echo "Could not initialize Beads automatically."
+        echo "   Run manually: bd init --stealth --quiet"
+      fi
+    else
+      echo "Beads already initialized"
+    fi
+  fi
+  echo ""
+  
+  # Create directories
+  mkdir -p .ralph
+  
+  # Initialize guardrails
+  init_guardrails "$(pwd)"
+  echo "Initialized .ralph/guardrails.md"
+  
+  # Update .gitignore
+  if [[ -f ".gitignore" ]]; then
+    if ! grep -q "ralph-config.json" .gitignore 2>/dev/null; then
+      echo "" >> .gitignore
+      echo "# Ralph config (may contain API keys)" >> .gitignore
+      echo ".cursor/ralph-config.json" >> .gitignore
+    fi
+    if ! grep -q "^RALPH_TASK.md$" .gitignore 2>/dev/null; then
+      echo "" >> .gitignore
+      echo "# Ralph default task file (local plan doc)" >> .gitignore
+      echo "RALPH_TASK.md" >> .gitignore
+    fi
+    echo "Updated .gitignore"
+  else
+    cat > .gitignore << 'EOF'
+# Ralph config (may contain API keys)
+.cursor/ralph-config.json
+
+# Ralph default task file (local plan doc)
+RALPH_TASK.md
+EOF
+    echo "Created .gitignore"
+  fi
+  
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════"
+  if [[ "$BEADS_MISSING" == "true" ]]; then
+    echo "Ralph initialized (with warnings)"
+  else
+    echo "Ralph initialized!"
+  fi
+  echo "═══════════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Next steps:"
+  if [[ "$BEADS_MISSING" == "true" ]]; then
+    echo "  1. Install Beads (see above)"
+    echo "  2. Create a task file:"
+    echo "     ralph --print-template > RALPH_TASK.md"
+    echo "  3. Run: ralph"
+  else
+    echo "  1. Create a task file:"
+    echo "     ralph --print-template > RALPH_TASK.md"
+    echo "  2. Run: ralph"
+  fi
+  echo ""
+  exit 0
+fi
+
+# =============================================================================
+# GUM DETECTION (for interactive mode)
+# =============================================================================
+
+HAS_GUM=false
+if command -v gum &> /dev/null; then
+  HAS_GUM=true
+fi
+
+# =============================================================================
+# GUM UI HELPERS
+# =============================================================================
+
+MODELS=(
+  "opus-4.5-thinking"
+  "sonnet-4.5-thinking"
+  "gpt-5.2-high"
+  "composer-1"
+  "Custom..."
+)
+
+select_model() {
+  if [[ "$HAS_GUM" == "true" ]]; then
+    local selected
+    selected=$(gum choose --header "Select model:" "${MODELS[@]}")
+    
+    if [[ "$selected" == "Custom..." ]]; then
+      selected=$(gum input --placeholder "Enter model name" --value "$DEFAULT_MODEL")
+    fi
+    echo "$selected"
+  else
+    echo ""
+    echo "Select model:"
+    local i=1
+    for m in "${MODELS[@]}"; do
+      if [[ "$m" == "Custom..." ]]; then
+        echo "  $i) Custom (enter manually)"
+      else
+        echo "  $i) $m"
+      fi
+      ((i++))
+    done
+    echo ""
+    read -p "Choice [1]: " choice
+    choice="${choice:-1}"
+    
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#MODELS[@]} ]]; then
+      local selected="${MODELS[$((choice-1))]}"
+      if [[ "$selected" == "Custom..." ]]; then
+        read -p "Enter model name: " selected
+      fi
+      echo "$selected"
+    else
+      echo "${MODELS[0]}"
+    fi
+  fi
+}
+
+get_max_iterations() {
+  if [[ "$HAS_GUM" == "true" ]]; then
+    local value
+    value=$(gum input --header "Max iterations:" --placeholder "20" --value "20")
+    echo "${value:-20}"
+  else
+    read -p "Max iterations [20]: " value
+    echo "${value:-20}"
+  fi
+}
+
+confirm_action() {
+  local message="$1"
+  
+  if [[ "$HAS_GUM" == "true" ]]; then
+    gum confirm "$message"
+  else
+    read -p "$message [y/N] " -n 1 -r
+    echo ""
+    [[ $REPLY =~ ^[Yy]$ ]]
+  fi
+}
+
+show_header() {
+  local text="$1"
+  if [[ "$HAS_GUM" == "true" ]]; then
+    gum style --border double --padding "0 2" --border-foreground 212 "$text"
+  else
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo "$text"
+    echo "═══════════════════════════════════════════════════════════════════"
+  fi
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+  # Resolve workspace
+  if [[ -z "$WORKSPACE" ]]; then
+    WORKSPACE="$(pwd)"
+  elif [[ "$WORKSPACE" == "." ]]; then
+    WORKSPACE="$(pwd)"
+  else
+    WORKSPACE="$(cd "$WORKSPACE" && pwd)"
+  fi
+  
+  # Resolve task file
+  local task_file
+  task_file=$(resolve_task_file "$WORKSPACE" "$TASK_FILE")
+  
+  # Derive or use provided run ID
+  local run_id="${RUN_ID:-}"
+  if [[ -z "$run_id" ]]; then
+    run_id=$(derive_run_id "$task_file" "$WORKSPACE")
+  fi
+  
+  # Get run directory
+  local run_dir
+  run_dir=$(get_run_dir "$WORKSPACE" "$run_id")
+  
+  # Show banner
+  echo ""
+  show_header "Ralph Wiggum: Autonomous Development Loop"
+  echo ""
+  
+  if [[ "$HAS_GUM" == "true" ]]; then
+    echo "  Using gum for enhanced UI"
+  else
+    echo "  Tip: Install gum for a better experience: brew install gum"
+  fi
+  echo ""
+  
+  # Check prerequisites
+  if ! check_prerequisites "$WORKSPACE" "$task_file"; then
+    exit 1
+  fi
+  
+  # Initialize run directory
+  init_run_dir "$run_dir"
+  
+  # Initialize shared guardrails
+  init_guardrails "$WORKSPACE"
+  
+  # Bootstrap Beads issues if not already done
+  if ! is_beads_initialized "$run_dir"; then
+    bootstrap_beads_from_task_md "$WORKSPACE" "$task_file" "$run_dir" "$run_id"
+  fi
+  
+  echo "Workspace:  $WORKSPACE"
+  echo "Task file:  $task_file"
+  echo "Run ID:     $run_id"
+  echo ""
+  
+  # Show task summary
+  echo "Task Summary:"
+  echo "─────────────────────────────────────────────────────────────────"
+  head -30 "$task_file"
+  echo "─────────────────────────────────────────────────────────────────"
+  echo ""
+  
+  # Count criteria via Beads
+  local counts
+  counts=$(count_criteria "$run_dir")
+  local done_criteria="${counts%%:*}"
+  local total_criteria="${counts##*:}"
+  local remaining=$((total_criteria - done_criteria))
+  
+  echo "Progress: $done_criteria / $total_criteria tasks complete ($remaining remaining)"
+  echo ""
+  
+  if [[ "$remaining" -eq 0 ]] && [[ "$total_criteria" -gt 0 ]]; then
+    echo "Task already complete! All Beads tasks are closed."
+    exit 0
+  fi
+  
+  # ==========================================================================
+  # RUN ONCE MODE
+  # ==========================================================================
+  
+  if [[ "$RUN_ONCE" == "true" ]]; then
+    echo "Running single iteration (--once mode)..."
+    echo ""
+    
+    # Interactive model selection if not specified and not skipping confirmation
+    if [[ "$MODEL" == "$DEFAULT_MODEL" ]] && [[ "$SKIP_CONFIRM" != "true" ]]; then
+      MODEL=$(select_model)
+      echo "Model: $MODEL"
+      echo ""
+    fi
+    
+    # Confirm
+    if [[ "$SKIP_CONFIRM" != "true" ]]; then
+      if ! confirm_action "Run single iteration?"; then
+        echo "Aborted."
+        exit 0
+      fi
+    fi
+    
+    # Commit any uncommitted work first
+    cd "$WORKSPACE"
+    if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+      echo "Committing uncommitted changes..."
+      git add -A
+      git commit -m "ralph: checkpoint before single iteration" || true
+    fi
+    
+    echo ""
+    echo "Running single iteration..."
+    echo ""
+    
+    # Run exactly one iteration
+    local signal
+    signal=$(run_iteration "$WORKSPACE" "1" "" "$SCRIPT_DIR" "$task_file" "$run_dir")
+    
+    # Check result
+    local task_status
+    task_status=$(check_task_complete "$run_dir")
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo "Single Iteration Complete"
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo ""
+    
+    case "$signal" in
+      "COMPLETE")
+        if [[ "$task_status" == "COMPLETE" ]]; then
+          echo "Task completed in single iteration!"
+          echo ""
+          echo "All Beads tasks are closed. You're done!"
+        else
+          echo "Agent signaled complete but some tasks remain open."
+          echo "   Review the results and run again if needed."
+        fi
+        ;;
+      "GUTTER")
+        echo "Gutter detected - agent got stuck."
+        echo ""
+        echo "Review $run_dir/errors.log and consider:"
+        echo "  1. Adding a guardrail to .ralph/guardrails.md"
+        echo "  2. Simplifying the task"
+        echo "  3. Fixing the blocking issue manually"
+        ;;
+      "ROTATE")
+        echo "Context rotation was triggered."
+        echo ""
+        echo "The agent used a lot of context. This is normal for complex tasks."
+        echo "Review the progress and run again or proceed to full loop."
+        ;;
+      *)
+        if [[ "$task_status" == "COMPLETE" ]]; then
+          echo "Task completed in single iteration!"
+        else
+          local remaining_count=${task_status#INCOMPLETE:}
+          echo "Agent finished with $remaining_count tasks remaining."
+        fi
+        ;;
+    esac
+    
+    echo ""
+    echo "Review the changes:"
+    echo "  git log --oneline -5     # See recent commits"
+    echo "  git diff HEAD~1          # See changes"
+    echo "  cat $run_dir/progress.md # See progress log"
+    echo "  bd list --label ralph:$run_id --json  # See Beads tasks"
+    echo ""
+    echo "Next steps:"
+    echo "  If satisfied: ralph --task-file $task_file  # Run full loop"
+    echo "  If issues: fix, update task/guardrails, ralph --once again"
+    echo ""
+    exit 0
+  fi
+  
+  # ==========================================================================
+  # INTERACTIVE SETUP (for loop mode)
+  # ==========================================================================
+  
+  if [[ "$SKIP_CONFIRM" != "true" ]]; then
+    echo "Configure your Ralph session:"
+    echo ""
+    
+    # Select model if not already set via flag
+    if [[ "$MODEL" == "$DEFAULT_MODEL" ]]; then
+      MODEL=$(select_model)
+    fi
+    echo "Model: $MODEL"
+    
+    # Get max iterations if not set via flag
+    if [[ "$MAX_ITERATIONS" == "20" ]]; then
+      MAX_ITERATIONS=$(get_max_iterations)
+    fi
+    echo "Max iterations: $MAX_ITERATIONS"
+    
+    echo ""
+  fi
+  
+  # Validate: PR requires branch
+  if [[ "$OPEN_PR" == "true" ]] && [[ -z "$USE_BRANCH" ]]; then
+    echo "Error: --pr requires --branch"
+    echo "   Example: ralph --branch feature/foo --pr"
+    exit 1
+  fi
+  
+  echo "─────────────────────────────────────────────────────────────────"
+  echo "Summary:"
+  echo "  Model:      $MODEL"
+  echo "  Iterations: $MAX_ITERATIONS max"
+  echo "  Task file:  $task_file"
+  echo "  Run ID:     $run_id"
+  [[ -n "$USE_BRANCH" ]] && echo "  Branch:     $USE_BRANCH"
+  [[ "$OPEN_PR" == "true" ]] && echo "  Open PR:    Yes"
+  echo "─────────────────────────────────────────────────────────────────"
+  echo ""
+  
+  if [[ "$SKIP_CONFIRM" != "true" ]]; then
+    if ! confirm_action "Start Ralph loop?"; then
+      echo "Aborted."
+      exit 0
+    fi
+  fi
+  
+  # ==========================================================================
+  # RUN LOOP
+  # ==========================================================================
+  
+  # Export settings for the loop
+  export MODEL
+  export MAX_ITERATIONS
+  export USE_BRANCH
+  export OPEN_PR
+  
+  # Run full loop
+  run_ralph_loop "$WORKSPACE" "$SCRIPT_DIR" "$task_file" "$run_dir"
+  exit $?
+}
+
+main "$@"
