@@ -24,6 +24,9 @@ USE_BRANCH="${USE_BRANCH:-}"
 OPEN_PR="${OPEN_PR:-false}"
 SKIP_CONFIRM="${SKIP_CONFIRM:-false}"
 
+# Task file (can be overridden before sourcing or via flag)
+TASK_FILE="${TASK_FILE:-RALPH_TASK.md}"
+
 # =============================================================================
 # BASIC HELPERS
 # =============================================================================
@@ -210,7 +213,7 @@ EOF
 # Check if task is complete
 check_task_complete() {
   local workspace="$1"
-  local task_file="$workspace/RALPH_TASK.md"
+  local task_file="$workspace/$TASK_FILE"
   
   if [[ ! -f "$task_file" ]]; then
     echo "NO_TASK_FILE"
@@ -232,7 +235,7 @@ check_task_complete() {
 # Count task criteria (returns done:total)
 count_criteria() {
   local workspace="${1:-.}"
-  local task_file="$workspace/RALPH_TASK.md"
+  local task_file="$workspace/$TASK_FILE"
   
   if [[ ! -f "$task_file" ]]; then
     echo "0:0"
@@ -265,7 +268,7 @@ You are an autonomous development agent using the Ralph methodology.
 ## FIRST: Read State Files
 
 Before doing anything:
-1. Read \`RALPH_TASK.md\` - your task and completion criteria
+1. Read \`$TASK_FILE\` - your task and completion criteria
 2. Read \`.ralph/guardrails.md\` - lessons from past failures (FOLLOW THESE)
 3. Read \`.ralph/progress.md\` - what's been accomplished
 4. Read \`.ralph/errors.log\` - recent failures to avoid
@@ -296,9 +299,9 @@ If you get rotated, the next agent picks up from your last commit. Your commits 
 
 ## Task Execution
 
-1. Work on the next unchecked criterion in RALPH_TASK.md (look for \`[ ]\`)
-2. Run tests after changes (check RALPH_TASK.md for test_command)
-3. **Mark completed criteria**: Edit RALPH_TASK.md and change \`[ ]\` to \`[x]\`
+1. Work on the next unchecked criterion in $TASK_FILE (look for \`[ ]\`)
+2. Run tests after changes (check $TASK_FILE for test_command)
+3. **Mark completed criteria**: Edit $TASK_FILE and change \`[ ]\` to \`[x]\`
    - Example: \`- [ ] Implement parser\` becomes \`- [x] Implement parser\`
    - This is how progress is tracked - YOU MUST update the file
 4. Update \`.ralph/progress.md\` with what you accomplished
@@ -598,14 +601,14 @@ run_ralph_loop() {
 # Check all prerequisites, exit with error message if any fail
 check_prerequisites() {
   local workspace="$1"
-  local task_file="$workspace/RALPH_TASK.md"
+  local task_file="$workspace/$TASK_FILE"
   
   # Check for task file
   if [[ ! -f "$task_file" ]]; then
-    echo "❌ No RALPH_TASK.md found in $workspace"
+    echo "❌ No $TASK_FILE found in $workspace"
     echo ""
     echo "Create a task file first:"
-    echo "  cat > RALPH_TASK.md << 'EOF'"
+    echo "  cat > $TASK_FILE << 'EOF'"
     echo "  ---"
     echo "  task: Your task description"
     echo "  test_command: \"npm test\""
@@ -644,7 +647,7 @@ check_prerequisites() {
 # Show task summary
 show_task_summary() {
   local workspace="$1"
-  local task_file="$workspace/RALPH_TASK.md"
+  local task_file="$workspace/$TASK_FILE"
   
   echo "📋 Task Summary:"
   echo "─────────────────────────────────────────────────────────────────"

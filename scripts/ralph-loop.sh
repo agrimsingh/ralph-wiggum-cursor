@@ -16,13 +16,14 @@
 # Flags:
 #   -n, --iterations N     Max iterations (default: 20)
 #   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+#   -f, --file FILE        Task file to use (default: RALPH_TASK.md)
 #   --branch NAME          Create and work on a new branch
 #   --pr                   Open PR when complete (requires --branch)
 #   -y, --yes              Skip confirmation prompt
 #   -h, --help             Show this help
 #
 # Requirements:
-#   - RALPH_TASK.md in the project root
+#   - Task file in the project root (default: RALPH_TASK.md)
 #   - Git repository
 #   - cursor-agent CLI installed
 
@@ -47,6 +48,7 @@ Usage:
 Options:
   -n, --iterations N     Max iterations (default: 20)
   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -f, --file FILE        Task file to use (default: RALPH_TASK.md)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -56,10 +58,12 @@ Examples:
   ./ralph-loop.sh                                    # Interactive mode
   ./ralph-loop.sh -n 50                              # 50 iterations max
   ./ralph-loop.sh -m gpt-5.2-high                    # Use GPT model
+  ./ralph-loop.sh -f MY_TASK.md                     # Use custom task file
   ./ralph-loop.sh --branch feature/api --pr -y      # Scripted PR workflow
   
 Environment:
   RALPH_MODEL            Override default model (same as -m flag)
+  TASK_FILE              Override default task file (same as -f flag)
 
 For interactive setup with a beautiful UI, use ralph-setup.sh instead.
 EOF
@@ -85,6 +89,10 @@ while [[ $# -gt 0 ]]; do
     --pr)
       OPEN_PR=true
       shift
+      ;;
+    -f|--file)
+      TASK_FILE="$2"
+      shift 2
       ;;
     -y|--yes)
       SKIP_CONFIRM=true
@@ -121,7 +129,7 @@ main() {
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
   fi
   
-  local task_file="$WORKSPACE/RALPH_TASK.md"
+  local task_file="$WORKSPACE/$TASK_FILE"
   
   # Show banner
   show_banner
