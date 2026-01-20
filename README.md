@@ -86,7 +86,7 @@ This creates two problems:
 
 ```bash
 cd your-project
-curl -fsSL https://raw.githubusercontent.com/agrimsingh/ralph-wiggum-cursor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jfriv/ralph-wiggum-claudecode/refs/heads/jfriv-claude-code/install.sh | bash
 ```
 
 This creates:
