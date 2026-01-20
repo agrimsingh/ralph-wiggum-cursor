@@ -17,10 +17,12 @@ The same prompt is fed repeatedly to an AI agent. Progress persists in **files a
 ### The malloc/free Problem
 
 In traditional programming:
+
 - `malloc()` allocates memory
 - `free()` releases memory
 
 In LLM context:
+
 - Reading files, tool outputs, conversation = `malloc()`
 - **There is no `free()`** - context cannot be selectively released
 - Only way to free: start a new conversation
@@ -65,6 +67,7 @@ This creates two problems:
 ```
 
 **Key features:**
+
 - **Interactive setup** - Beautiful gum-based UI for model selection and options
 - **Accurate token tracking** - Parser counts actual bytes from every file read/write
 - **Gutter detection** - Detects when agent is stuck (same command failed 3x, file thrashing)
@@ -74,11 +77,11 @@ This creates two problems:
 
 ## Prerequisites
 
-| Requirement | Check | How to Set Up |
-|-------------|-------|---------------|
-| **Git repo** | `git status` works | `git init` |
-| **cursor-agent CLI** | `which cursor-agent` | `curl https://cursor.com/install -fsS \| bash` |
-| **gum** (optional) | `which gum` | Installer offers to install, or `brew install gum` |
+| Requirement          | Check                | How to Set Up                                      |
+| -------------------- | -------------------- | -------------------------------------------------- |
+| **Git repo**         | `git status` works   | `git init`                                         |
+| **cursor-agent CLI** | `which cursor-agent` | `curl https://cursor.com/install -fsS \| bash`     |
+| **gum** (optional)   | `which gum`          | Installer offers to install, or `brew install gum` |
 
 ## Quick Start
 
@@ -90,6 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/agrimsingh/ralph-wiggum-cursor/main
 ```
 
 This creates:
+
 ```
 your-project/
 ├── .cursor/ralph-scripts/      # Ralph scripts
@@ -110,6 +114,7 @@ your-project/
 ### 2. (Optional) gum for Enhanced UI
 
 The installer will offer to install gum automatically. You can also:
+
 - Skip the prompt and auto-install: `curl ... | INSTALL_GUM=1 bash`
 - Install manually: `brew install gum` (macOS) or see [gum installation](https://github.com/charmbracelet/gum#installation)
 
@@ -136,7 +141,7 @@ Without gum, Ralph falls back to simple numbered prompts.
 
 ### 3. Define Your Task
 
-Edit `RALPH_TASK.md`:
+Edit `RALPH_TASK.md` (or create a custom task file and use `-f` flag):
 
 ```markdown
 ---
@@ -151,7 +156,7 @@ Build a REST API with user management.
 ## Success Criteria
 
 1. [ ] GET /health returns 200
-2. [ ] POST /users creates a user  
+2. [ ] POST /users creates a user
 3. [ ] GET /users/:id returns user
 4. [ ] All tests pass
 
@@ -170,6 +175,7 @@ Build a REST API with user management.
 ```
 
 Ralph will:
+
 1. Show interactive UI for model and options (or simple prompts if gum not installed)
 2. Run `cursor-agent` with your task
 3. Parse output in real-time, tracking token usage
@@ -195,12 +201,12 @@ cat .ralph/errors.log
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
+| Command          | Description                                |
+| ---------------- | ------------------------------------------ |
 | `ralph-setup.sh` | **Primary** - Interactive setup + run loop |
-| `ralph-once.sh` | Test single iteration before going AFK |
-| `ralph-loop.sh` | CLI mode for scripting (see flags below) |
-| `init-ralph.sh` | Re-initialize Ralph state |
+| `ralph-once.sh`  | Test single iteration before going AFK     |
+| `ralph-loop.sh`  | CLI mode for scripting (see flags below)   |
+| `init-ralph.sh`  | Re-initialize Ralph state                  |
 
 ### ralph-loop.sh Flags (for scripting/CI)
 
@@ -210,6 +216,7 @@ cat .ralph/errors.log
 Options:
   -n, --iterations N     Max iterations (default: 20)
   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -f, --file FILE        Task file to use (default: RALPH_TASK.md)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -223,6 +230,12 @@ Options:
 
 # Use a different model with more iterations
 ./ralph-loop.sh -n 50 -m gpt-5.2-high
+
+# Use a custom task file
+./ralph-loop.sh -f tasks/api-task.md
+
+# Combine options: custom task file with branch workflow
+./ralph-loop.sh -f MY_TASK.md --branch feature/api --pr -y
 ```
 
 ## How It Works
@@ -235,7 +248,7 @@ Iteration 1                    Iteration 2                    Iteration N
 │ Fresh context    │          │ Fresh context    │          │ Fresh context    │
 │       │          │          │       │          │          │       │          │
 │       ▼          │          │       ▼          │          │       ▼          │
-│ Read RALPH_TASK  │          │ Read RALPH_TASK  │          │ Read RALPH_TASK  │
+│ Read task file   │          │ Read task file   │          │ Read task file   │
 │ Read guardrails  │──────────│ Read guardrails  │──────────│ Read guardrails  │
 │ Read progress    │  (state  │ Read progress    │  (state  │ Read progress    │
 │       │          │  in git) │       │          │  in git) │       │          │
@@ -250,6 +263,7 @@ Iteration 1                    Iteration 2                    Iteration N
 ```
 
 Each iteration:
+
 1. Reads task and state from files (not from previous context)
 2. Works on unchecked criteria
 3. Commits progress to git
@@ -276,6 +290,7 @@ When something fails, the agent adds a "Sign" to `.ralph/guardrails.md`:
 
 ```markdown
 ### Sign: Check imports before adding
+
 - **Trigger**: Adding a new import statement
 - **Instruction**: First check if import already exists in file
 - **Added after**: Iteration 3 - duplicate import caused build failure
@@ -291,13 +306,14 @@ Error occurs → errors.log → Agent analyzes → Updates guardrails.md → Fut
 
 The activity log shows context health with emoji:
 
-| Emoji | Status | Token % | Meaning |
-|-------|--------|---------|---------|
-| 🟢 | Healthy | < 60% | Plenty of room |
-| 🟡 | Warning | 60-80% | Approaching limit |
-| 🔴 | Critical | > 80% | Rotation imminent |
+| Emoji | Status   | Token % | Meaning           |
+| ----- | -------- | ------- | ----------------- |
+| 🟢    | Healthy  | < 60%   | Plenty of room    |
+| 🟡    | Warning  | 60-80%  | Approaching limit |
+| 🔴    | Critical | > 80%   | Rotation imminent |
 
 Example:
+
 ```
 [12:34:56] 🟢 READ src/index.ts (245 lines, ~24.5KB)
 [12:40:22] 🟡 TOKENS: 58,000 / 80,000 (72%) - approaching limit [read:40KB write:8KB assist:10KB shell:0KB]
@@ -308,13 +324,14 @@ Example:
 
 The parser detects when the agent is stuck:
 
-| Pattern | Trigger | What Happens |
-|---------|---------|--------------|
-| Repeated failure | Same command failed 3x | GUTTER signal |
-| File thrashing | Same file written 5x in 10 min | GUTTER signal |
-| Agent signals | Agent outputs `<ralph>GUTTER</ralph>` | GUTTER signal |
+| Pattern          | Trigger                               | What Happens  |
+| ---------------- | ------------------------------------- | ------------- |
+| Repeated failure | Same command failed 3x                | GUTTER signal |
+| File thrashing   | Same file written 5x in 10 min        | GUTTER signal |
+| Agent signals    | Agent outputs `<ralph>GUTTER</ralph>` | GUTTER signal |
 
 When gutter is detected:
+
 1. Check `.ralph/errors.log` for the pattern
 2. Fix the issue manually or add a guardrail
 3. Re-run the loop
@@ -323,21 +340,21 @@ When gutter is detected:
 
 Ralph detects completion in two ways:
 
-1. **Checkbox check**: All `[ ]` in RALPH_TASK.md changed to `[x]`
+1. **Checkbox check**: All `[ ]` in the task file changed to `[x]`
 2. **Agent sigil**: Agent outputs `<ralph>COMPLETE</ralph>`
 
 Both are verified before declaring success.
 
 ## File Reference
 
-| File | Purpose | Who Uses It |
-|------|---------|-------------|
-| `RALPH_TASK.md` | Task definition + success criteria | You define, agent reads |
-| `.ralph/progress.md` | What's been accomplished | Agent writes after work |
-| `.ralph/guardrails.md` | Lessons learned (Signs) | Agent reads first, writes after failures |
-| `.ralph/activity.log` | Tool call log with token counts | Parser writes, you monitor |
-| `.ralph/errors.log` | Failures + gutter detection | Parser writes, agent reads |
-| `.ralph/.iteration` | Current iteration number | Parser reads/writes |
+| File                   | Purpose                                                                  | Who Uses It                              |
+| ---------------------- | ------------------------------------------------------------------------ | ---------------------------------------- |
+| `RALPH_TASK.md`        | Task definition + success criteria (default, customizable via `-f` flag) | You define, agent reads                  |
+| `.ralph/progress.md`   | What's been accomplished                                                 | Agent writes after work                  |
+| `.ralph/guardrails.md` | Lessons learned (Signs)                                                  | Agent reads first, writes after failures |
+| `.ralph/activity.log`  | Tool call log with token counts                                          | Parser writes, you monitor               |
+| `.ralph/errors.log`    | Failures + gutter detection                                              | Parser writes, agent reads               |
+| `.ralph/.iteration`    | Current iteration number                                                 | Parser reads/writes                      |
 
 ## Configuration
 
@@ -345,16 +362,21 @@ Configuration is set via command-line flags or environment variables:
 
 ```bash
 # Via flags (recommended)
-./ralph-loop.sh -n 50 -m gpt-5.2-high
+./ralph-loop.sh -n 50 -m gpt-5.2-high -f tasks/my-task.md
 
 # Via environment
-RALPH_MODEL=gpt-5.2-high MAX_ITERATIONS=50 ./ralph-loop.sh
+RALPH_MODEL=gpt-5.2-high MAX_ITERATIONS=50 TASK_FILE=tasks/my-task.md ./ralph-loop.sh
 ```
+
+| Flag               | Environment Variable | Default             | Description                    |
+| ------------------ | -------------------- | ------------------- | ------------------------------ |
+| `-n, --iterations` | `MAX_ITERATIONS`     | `20`                | Max rotations before giving up |
+| `-m, --model`      | `RALPH_MODEL`        | `opus-4.5-thinking` | Model to use                   |
+| `-f, --file`       | `TASK_FILE`          | `RALPH_TASK.md`     | Task definition file           |
 
 Default thresholds in `ralph-common.sh`:
 
 ```bash
-MAX_ITERATIONS=20       # Max rotations before giving up
 WARN_THRESHOLD=70000    # Tokens: send wrapup warning
 ROTATE_THRESHOLD=80000  # Tokens: force rotation
 ```
@@ -370,18 +392,21 @@ curl https://cursor.com/install -fsS | bash
 ### Agent keeps failing on same thing
 
 Check `.ralph/errors.log` for the pattern. Either:
+
 1. Fix the underlying issue manually
 2. Add a guardrail to `.ralph/guardrails.md` explaining what to do differently
 
 ### Context rotates too frequently
 
 The agent might be reading too many large files. Check `activity.log` for large READs and consider:
+
 1. Adding a guardrail: "Don't read the entire file, use grep to find relevant sections"
 2. Breaking the task into smaller pieces
 
 ### Task never completes
 
 Check if criteria are too vague. Each criterion should be:
+
 - Specific and testable
 - Achievable in a single iteration
 - Not dependent on manual steps
@@ -402,10 +427,26 @@ Check if criteria are too vague. Each criterion should be:
 ./ralph-setup.sh  # Continue with full loop
 ```
 
+### Custom Task File
+
+Use the `-f` flag to specify a different task file:
+
+```bash
+# Useful for multiple tasks in the same repo
+./ralph-loop.sh -f tasks/backend-api.md
+./ralph-loop.sh -f tasks/frontend-ui.md
+
+# Or via environment variable
+TASK_FILE=MY_TASK.md ./ralph-loop.sh
+```
+
 ### Scripted/CI
 
 ```bash
 ./ralph-loop.sh --branch feature/foo --pr -y
+
+# With custom task file
+./ralph-loop.sh -f tasks/ci-task.md --branch feature/foo --pr -y
 ```
 
 ## Learn More
