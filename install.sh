@@ -20,10 +20,10 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
   echo ""
 fi
 
-# Check for cursor-agent CLI
-if ! command -v cursor-agent &> /dev/null; then
-  echo "⚠️  Warning: cursor-agent CLI not found."
-  echo "   Install via: curl https://cursor.com/install -fsS | bash"
+# Check for claude CLI
+if ! command -v claude &> /dev/null; then
+  echo "⚠️  Warning: claude CLI not found."
+  echo "   Install via: npm install -g @anthropic-ai/claude-code"
   echo ""
 fi
 
@@ -78,7 +78,7 @@ WORKSPACE_ROOT="$(pwd)"
 # =============================================================================
 
 echo "📁 Creating directories..."
-mkdir -p .cursor/ralph-scripts
+mkdir -p .claude/ralph-scripts
 mkdir -p .ralph
 
 # =============================================================================
@@ -97,14 +97,14 @@ SCRIPTS=(
 )
 
 for script in "${SCRIPTS[@]}"; do
-  if curl -fsSL "$REPO_RAW/scripts/$script" -o ".cursor/ralph-scripts/$script" 2>/dev/null; then
-    chmod +x ".cursor/ralph-scripts/$script"
+  if curl -fsSL "$REPO_RAW/scripts/$script" -o ".claude/ralph-scripts/$script" 2>/dev/null; then
+    chmod +x ".claude/ralph-scripts/$script"
   else
     echo "   ⚠️  Could not download $script (may not exist yet)"
   fi
 done
 
-echo "✓ Scripts installed to .cursor/ralph-scripts/"
+echo "✓ Scripts installed to .claude/ralph-scripts/"
 
 
 # =============================================================================
@@ -250,12 +250,12 @@ if [[ -f ".gitignore" ]]; then
   if ! grep -q "ralph-config.json" .gitignore 2>/dev/null; then
     echo "" >> .gitignore
     echo "# Ralph config (may contain API key)" >> .gitignore
-    echo ".cursor/ralph-config.json" >> .gitignore
+    echo ".claude/ralph-config.json" >> .gitignore
   fi
 else
   cat > .gitignore <<'EOF'
 # Ralph config (may contain API key)
-.cursor/ralph-config.json
+.claude/ralph-config.json
 EOF
 fi
 echo "✓ Updated .gitignore"
@@ -271,7 +271,7 @@ echo "════════════════════════�
 echo ""
 echo "Files created:"
 echo ""
-echo "  📁 .cursor/ralph-scripts/"
+echo "  📁 .claude/ralph-scripts/"
 echo "     ├── ralph-setup.sh          - Main entry (interactive)"
 echo "     ├── ralph-loop.sh           - CLI mode (for scripting)"
 echo "     ├── ralph-once.sh           - Single iteration (testing)"
@@ -287,7 +287,7 @@ echo "  📄 RALPH_TASK.md               - Your task definition (edit this!)"
 echo ""
 echo "Next steps:"
 echo "  1. Edit RALPH_TASK.md to define your actual task"
-echo "  2. Run: ./.cursor/ralph-scripts/ralph-setup.sh"
+echo "  2. Run: ./.claude/ralph-scripts/ralph-setup.sh"
 echo ""
 echo "Alternative commands:"
 echo "  • ralph-once.sh    - Test with single iteration first"

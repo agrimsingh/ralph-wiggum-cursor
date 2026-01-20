@@ -17,7 +17,7 @@
 # Requirements:
 #   - RALPH_TASK.md in the project root
 #   - Git repository
-#   - cursor-agent CLI installed
+#   - claude CLI installed
 
 set -euo pipefail
 
@@ -41,12 +41,12 @@ Usage:
   ./ralph-once.sh [options] [workspace]
 
 Options:
-  -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -m, --model MODEL      Model to use (default: opus)
   -h, --help             Show this help
 
 Examples:
-  ./ralph-once.sh                        # Run one iteration
-  ./ralph-once.sh -m sonnet-4.5-thinking # Use Sonnet model
+  ./ralph-once.sh                # Run one iteration
+  ./ralph-once.sh -m sonnet      # Use Sonnet model
   
 After reviewing the results:
   - If satisfied: run ./ralph-setup.sh for full loop

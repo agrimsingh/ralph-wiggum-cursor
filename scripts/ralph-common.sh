@@ -16,7 +16,7 @@ ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
 
 # Model selection
-DEFAULT_MODEL="opus-4.5-thinking"
+DEFAULT_MODEL="opus"
 MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
 
 # Feature flags (set by caller)
@@ -380,12 +380,12 @@ run_iteration() {
   # Log session start to progress.md
   log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
   
-  # Build cursor-agent command
-  local cmd="cursor-agent -p --force --output-format stream-json --model $MODEL"
+  # Build claude CLI command
+  local cmd="claude -p --verbose --output-format stream-json --model $MODEL"
   
   if [[ -n "$session_id" ]]; then
     echo "Resuming session: $session_id" >&2
-    cmd="$cmd --resume=\"$session_id\""
+    cmd="$cmd -r \"$session_id\""
   fi
   
   # Change to workspace
@@ -395,7 +395,7 @@ run_iteration() {
   spinner "$workspace" &
   local spinner_pid=$!
   
-  # Start parser in background, reading from cursor-agent
+  # Start parser in background, reading from claude CLI
   # Parser outputs to fifo, we read signals from fifo
   (
     eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
@@ -618,12 +618,12 @@ check_prerequisites() {
     return 1
   fi
   
-  # Check for cursor-agent CLI
-  if ! command -v cursor-agent &> /dev/null; then
-    echo "❌ cursor-agent CLI not found"
+  # Check for claude CLI
+  if ! command -v claude &> /dev/null; then
+    echo "❌ claude CLI not found"
     echo ""
     echo "Install via:"
-    echo "  curl https://cursor.com/install -fsS | bash"
+    echo "  npm install -g @anthropic-ai/claude-code"
     return 1
   fi
   

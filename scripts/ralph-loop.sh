@@ -1,7 +1,7 @@
 #!/bin/bash
 # Ralph Wiggum: The Loop (CLI Mode)
 #
-# Runs cursor-agent locally with stream-json parsing for accurate token tracking.
+# Runs claude CLI locally with stream-json parsing for accurate token tracking.
 # Handles context rotation via --resume when thresholds are hit.
 #
 # This script is for power users and scripting. For interactive use, see ralph-setup.sh.
@@ -9,13 +9,13 @@
 # Usage:
 #   ./ralph-loop.sh                              # Start from current directory
 #   ./ralph-loop.sh /path/to/project             # Start from specific project
-#   ./ralph-loop.sh -n 50 -m gpt-5.2-high        # Custom iterations and model
+#   ./ralph-loop.sh -n 50 -m opus                # Custom iterations and model
 #   ./ralph-loop.sh --branch feature/foo --pr   # Create branch and PR
 #   ./ralph-loop.sh -y                           # Skip confirmation (for scripting)
 #
 # Flags:
 #   -n, --iterations N     Max iterations (default: 20)
-#   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+#   -m, --model MODEL      Model to use (default: opus)
 #   --branch NAME          Create and work on a new branch
 #   --pr                   Open PR when complete (requires --branch)
 #   -y, --yes              Skip confirmation prompt
@@ -24,7 +24,7 @@
 # Requirements:
 #   - RALPH_TASK.md in the project root
 #   - Git repository
-#   - cursor-agent CLI installed
+#   - claude CLI installed
 
 set -euo pipefail
 
@@ -46,7 +46,7 @@ Usage:
 
 Options:
   -n, --iterations N     Max iterations (default: 20)
-  -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -m, --model MODEL      Model to use (default: opus)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -55,7 +55,7 @@ Options:
 Examples:
   ./ralph-loop.sh                                    # Interactive mode
   ./ralph-loop.sh -n 50                              # 50 iterations max
-  ./ralph-loop.sh -m gpt-5.2-high                    # Use GPT model
+  ./ralph-loop.sh -m sonnet                          # Use Sonnet model
   ./ralph-loop.sh --branch feature/api --pr -y      # Scripted PR workflow
   
 Environment:
@@ -173,7 +173,7 @@ main() {
   
   # Confirm before starting (unless -y flag)
   if [[ "$SKIP_CONFIRM" != "true" ]]; then
-    echo "This will run cursor-agent locally to work on this task."
+    echo "This will run claude CLI locally to work on this task."
     echo "The agent will be rotated when context fills up (~80k tokens)."
     echo ""
     echo "Tip: Use ralph-setup.sh for interactive model/option selection."

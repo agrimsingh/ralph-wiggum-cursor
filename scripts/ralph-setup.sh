@@ -11,7 +11,7 @@
 # Requirements:
 #   - RALPH_TASK.md in the project root
 #   - Git repository
-#   - cursor-agent CLI installed
+#   - claude CLI installed
 #   - gum (optional, for enhanced UI): brew install gum
 
 set -euo pipefail
@@ -34,12 +34,11 @@ fi
 # GUM UI HELPERS
 # =============================================================================
 
-# Model options
+# Model options (Claude CLI model aliases)
 MODELS=(
-  "opus-4.5-thinking"
-  "sonnet-4.5-thinking"
-  "gpt-5.2-high"
-  "composer-1"
+  "opus"
+  "sonnet"
+  "haiku"
   "Custom..."
 )
 

@@ -1,6 +1,6 @@
-# Ralph Wiggum for Cursor
+# Ralph Wiggum for Claude Code
 
-An implementation of [Geoffrey Huntley's Ralph Wiggum technique](https://ghuntley.com/ralph/) for Cursor, enabling autonomous AI development with deliberate context management.
+An implementation of [Geoffrey Huntley's Ralph Wiggum technique](https://ghuntley.com/ralph/) for Claude Code CLI, enabling autonomous AI development with deliberate context management.
 
 > "That's the beauty of Ralph - the technique is deterministically bad in an undeterministic world."
 
@@ -47,7 +47,7 @@ This creates two problems:
 │              │                         │                    │
 │              └────────────┬────────────┘                    │
 │                           ▼                                  │
-│    cursor-agent -p --force --output-format stream-json       │
+│    claude -p --verbose --output-format stream-json            │
 │                           │                                  │
 │                           ▼                                  │
 │                   stream-parser.sh                           │
@@ -77,7 +77,7 @@ This creates two problems:
 | Requirement | Check | How to Set Up |
 |-------------|-------|---------------|
 | **Git repo** | `git status` works | `git init` |
-| **cursor-agent CLI** | `which cursor-agent` | `curl https://cursor.com/install -fsS \| bash` |
+| **claude CLI** | `which claude` | `npm install -g @anthropic-ai/claude-code` |
 | **gum** (optional) | `which gum` | Installer offers to install, or `brew install gum` |
 
 ## Quick Start
@@ -92,7 +92,7 @@ curl -fsSL https://raw.githubusercontent.com/agrimsingh/ralph-wiggum-cursor/main
 This creates:
 ```
 your-project/
-├── .cursor/ralph-scripts/      # Ralph scripts
+├── .claude/ralph-scripts/      # Ralph scripts
 │   ├── ralph-setup.sh          # Main entry point (interactive)
 │   ├── ralph-loop.sh           # CLI mode (for scripting)
 │   ├── ralph-once.sh           # Single iteration (testing)
@@ -117,10 +117,9 @@ With gum, you get a beautiful interactive menu for selecting models and options:
 
 ```
 ? Select model:
-  ◉ opus-4.5-thinking
-  ◯ sonnet-4.5-thinking
-  ◯ gpt-5.2-high
-  ◯ composer-1
+  ◉ opus
+  ◯ sonnet
+  ◯ haiku
   ◯ Custom...
 
 ? Max iterations: 20
@@ -166,12 +165,12 @@ Build a REST API with user management.
 ### 4. Start the Loop
 
 ```bash
-./.cursor/ralph-scripts/ralph-setup.sh
+./.claude/ralph-scripts/ralph-setup.sh
 ```
 
 Ralph will:
 1. Show interactive UI for model and options (or simple prompts if gum not installed)
-2. Run `cursor-agent` with your task
+2. Run `claude CLI` with your task
 3. Parse output in real-time, tracking token usage
 4. At 70k tokens: warn agent to wrap up current work
 5. At 80k tokens: rotate to fresh context
@@ -209,7 +208,7 @@ cat .ralph/errors.log
 
 Options:
   -n, --iterations N     Max iterations (default: 20)
-  -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -m, --model MODEL      Model to use (default: opus)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -222,7 +221,7 @@ Options:
 ./ralph-loop.sh --branch feature/api --pr -y
 
 # Use a different model with more iterations
-./ralph-loop.sh -n 50 -m gpt-5.2-high
+./ralph-loop.sh -n 50 -m sonnet
 ```
 
 ## How It Works
@@ -345,10 +344,10 @@ Configuration is set via command-line flags or environment variables:
 
 ```bash
 # Via flags (recommended)
-./ralph-loop.sh -n 50 -m gpt-5.2-high
+./ralph-loop.sh -n 50 -m sonnet
 
 # Via environment
-RALPH_MODEL=gpt-5.2-high MAX_ITERATIONS=50 ./ralph-loop.sh
+RALPH_MODEL=sonnet MAX_ITERATIONS=50 ./ralph-loop.sh
 ```
 
 Default thresholds in `ralph-common.sh`:
@@ -361,10 +360,10 @@ ROTATE_THRESHOLD=80000  # Tokens: force rotation
 
 ## Troubleshooting
 
-### "cursor-agent CLI not found"
+### "claude CLI not found"
 
 ```bash
-curl https://cursor.com/install -fsS | bash
+npm install -g @anthropic-ai/claude-code
 ```
 
 ### Agent keeps failing on same thing
@@ -412,13 +411,14 @@ Check if criteria are too vague. Each criterion should be:
 
 - [Original Ralph technique](https://ghuntley.com/ralph/) - Geoffrey Huntley
 - [Context as memory](https://ghuntley.com/allocations/) - The malloc/free metaphor
-- [Cursor CLI docs](https://cursor.com/docs/cli/headless)
+- [Claude Code CLI docs](https://code.claude.com/docs/en/cli-reference)
 - [gum - A tool for glamorous shell scripts](https://github.com/charmbracelet/gum)
 
 ## Credits
 
 - **Original technique**: [Geoffrey Huntley](https://ghuntley.com/ralph/) - the Ralph Wiggum methodology
-- **Cursor port**: [Agrim Singh](https://x.com/agrimsingh) - this implementation
+- **Cursor port**: [Agrim Singh](https://x.com/agrimsingh) - original cursor implementation
+- **Claude Code port**: Fork adapted for Claude Code CLI
 
 ## License
 
