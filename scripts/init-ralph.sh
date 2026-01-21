@@ -21,14 +21,6 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
   exit 1
 fi
 
-# Navigate to git root if in a subdirectory
-GIT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PWD" != "$GIT_ROOT" ]]; then
-  echo "📂 Moving to git root: $GIT_ROOT"
-  cd "$GIT_ROOT"
-  echo ""
-fi
-
 # Check for claude CLI
 if ! command -v claude &> /dev/null; then
   echo "⚠️  Warning: claude CLI not found."

@@ -20,12 +20,8 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
   exit 1
 fi
 
-# Navigate to git root if in a subdirectory
+# Get git root for .gitignore updates
 GIT_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "$PWD" != "$GIT_ROOT" ]]; then
-  echo "📂 Using git root: $GIT_ROOT"
-  echo ""
-fi
 
 # Check for claude CLI
 if ! command -v claude &> /dev/null; then
@@ -254,13 +250,13 @@ fi
 # =============================================================================
 
 if [[ -f "$GIT_ROOT/.gitignore" ]]; then
-  if ! grep -q "ralph-config.json" .gitignore 2>/dev/null; then
-    echo "" >> $GIT_ROOT/.gitignore
-    echo "# Ralph config (may contain API key)" >> $GIT_ROOT/.gitignore
-    echo ".claude/ralph-config.json" >> $GIT_ROOT/.gitignore
+  if ! grep -q "ralph-config.json" "$GIT_ROOT/.gitignore" 2>/dev/null; then
+    echo "" >> "$GIT_ROOT/.gitignore"
+    echo "# Ralph config (may contain API key)" >> "$GIT_ROOT/.gitignore"
+    echo ".claude/ralph-config.json" >> "$GIT_ROOT/.gitignore"
   fi
 else
-  cat > $GIT_ROOT/.gitignore <<'EOF'
+  cat > "$GIT_ROOT/.gitignore" <<'EOF'
 # Ralph config (may contain API key)
 .claude/ralph-config.json
 EOF

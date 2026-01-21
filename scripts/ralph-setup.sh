@@ -193,12 +193,6 @@ main() {
   fi
   echo ""
 
-  # Resolve to git root (exits with error if not in a git repo)
-  local git_root
-  if ! git_root=$(resolve_git_root "$workspace"); then
-    exit 1
-  fi
-
   local task_file="$workspace/RALPH_TASK.md"
 
   # Check prerequisites

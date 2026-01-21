@@ -108,17 +108,6 @@ main() {
   echo "═══════════════════════════════════════════════════════════════════"
   echo ""
 
-  # Resolve to git root (exits with error if not in a git repo)
-  local git_root
-  if ! git_root=$(resolve_git_root "$WORKSPACE"); then
-    exit 1
-  fi
-  if [[ "$WORKSPACE" != "$git_root" ]]; then
-    echo "📂 Moving to git root: $git_root"
-    echo ""
-    WORKSPACE="$git_root"
-  fi
-
   local task_file="$WORKSPACE/RALPH_TASK.md"
 
   # Check prerequisites
