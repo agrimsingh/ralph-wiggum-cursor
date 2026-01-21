@@ -198,11 +198,6 @@ main() {
   if ! git_root=$(resolve_git_root "$workspace"); then
     exit 1
   fi
-  if [[ "$workspace" != "$git_root" ]]; then
-    echo "📂 Moving to git root: $git_root"
-    echo ""
-    workspace="$git_root"
-  fi
 
   local task_file="$workspace/RALPH_TASK.md"
 
