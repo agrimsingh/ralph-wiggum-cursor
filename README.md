@@ -59,9 +59,8 @@ This creates two problems:
 │  Per-run state (.ralph/runs/<runId>/)       Signals          │
 │  ├── activity.log  (tool calls)             ├── WARN at 70k │
 │  ├── errors.log    (failures)               ├── ROTATE at 80k│
-│  ├── progress.md   (agent writes)           ├── COMPLETE    │
-│  ├── beads.label   (task label)             └── GUTTER      │
-│  └── beads.root_id (epic ID)                                │
+│  ├── beads.label   (task label)             ├── COMPLETE    │
+│  └── beads.root_id (epic ID)                └── GUTTER      │
 │                                                              │
 │  Shared: .ralph/guardrails.md (lessons learned)             │
 │                                                              │
@@ -132,7 +131,6 @@ your-project/
 ├── .ralph/                     # State files
 │   ├── guardrails.md           # Lessons learned (shared)
 │   └── runs/<runId>/           # Per-run state (created on first run)
-│       ├── progress.md         # What's been done
 │       ├── activity.log        # Tool call log
 │       ├── errors.log          # Failure log
 │       ├── beads.label         # Beads label for this run
@@ -468,7 +466,6 @@ Both are verified before declaring success.
 | `RALPH_TASK.md`                     | Default task file (gitignored)        | Default if no `--task-file`              |
 | `plans/*.md` (or any path)          | Task/plan files (BYO)                 | Pass via `--task-file`                   |
 | `.ralph/guardrails.md`              | Lessons learned (Signs)               | Agent reads first, writes after failures |
-| `.ralph/runs/<runId>/progress.md`   | What's been accomplished              | Agent writes after work                  |
 | `.ralph/runs/<runId>/activity.log`  | Tool call log with token counts       | Parser writes, you monitor               |
 | `.ralph/runs/<runId>/errors.log`    | Failures + gutter detection           | Parser writes, agent reads               |
 | `.ralph/runs/<runId>/beads.label`   | Beads label for filtering             | Ralph reads/writes                       |

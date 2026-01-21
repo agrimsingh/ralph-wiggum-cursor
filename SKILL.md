@@ -38,8 +38,7 @@ Ralph tracks state in files, NOT in context:
 ├── state.md           # Current iteration, task, completion criteria
 ├── guardrails.md      # Accumulated "signs" from observed failures  
 ├── context-log.md     # What's been loaded into context
-├── failures.md        # Failure patterns for learning
-└── progress.md        # What's been accomplished
+└── failures.md        # Failure patterns for learning
 ```
 
 ### The Iteration Cycle
@@ -104,7 +103,7 @@ Then tell Cursor: "Start a Ralph loop on this task"
 
 ### Monitoring Progress
 
-Check `.ralph/progress.md` to see what's been accomplished:
+Check git history and Beads status to see what's been accomplished:
 
 ```markdown
 ## Iteration 1

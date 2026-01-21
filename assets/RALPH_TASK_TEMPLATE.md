@@ -51,9 +51,7 @@ When working on this task:
 3. Work on the task
 4. Close when done: `bd close <id> --reason "description" --json`
 5. Sync: `bd sync`
-6. Read `.ralph/runs/<runId>/progress.md` to see what's been done
-7. Check `.ralph/guardrails.md` for signs to follow
-8. Update `.ralph/runs/<runId>/progress.md` with your progress
-9. Commit your changes with descriptive messages
-10. When all tasks are closed, output: `<ralph>COMPLETE</ralph>`
-11. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`
+6. Check `.ralph/guardrails.md` for signs to follow
+7. Commit your changes with descriptive messages
+8. When all tasks are closed, output: `<ralph>COMPLETE</ralph>`
+9. If stuck on the same issue 3+ times, output: `<ralph>GUTTER</ralph>`

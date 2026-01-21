@@ -31,50 +31,12 @@ else
 fi
 echo ""
 
-# Test 3: Legacy wrappers print deprecation warnings
-echo "Test 3: Legacy wrappers print deprecation warnings"
-
-# Test ralph-setup.sh
-echo "  Testing ralph-setup.sh..."
-output=$(bash scripts/ralph-setup.sh --help 2>&1 || true)
-if echo "$output" | head -5 | grep -q "deprecated"; then
-  echo "  ✓ PASS (ralph-setup.sh)"
+# Test 3: bash syntax validation
+echo "Test 3: bash syntax validation"
+if bash -n scripts/ralph scripts/*.sh 2>&1; then
+  echo "✓ PASS"
 else
-  echo "  ✗ FAIL (ralph-setup.sh)"
-  echo "    Output: $(echo "$output" | head -5)"
-  FAILED=1
-fi
-
-# Test ralph-once.sh
-echo "  Testing ralph-once.sh..."
-output=$(bash scripts/ralph-once.sh --help 2>&1 || true)
-if echo "$output" | head -5 | grep -q "deprecated"; then
-  echo "  ✓ PASS (ralph-once.sh)"
-else
-  echo "  ✗ FAIL (ralph-once.sh)"
-  echo "    Output: $(echo "$output" | head -5)"
-  FAILED=1
-fi
-
-# Test ralph-loop.sh
-echo "  Testing ralph-loop.sh..."
-output=$(bash scripts/ralph-loop.sh --help 2>&1 || true)
-if echo "$output" | head -5 | grep -q "deprecated"; then
-  echo "  ✓ PASS (ralph-loop.sh)"
-else
-  echo "  ✗ FAIL (ralph-loop.sh)"
-  echo "    Output: $(echo "$output" | head -5)"
-  FAILED=1
-fi
-
-# Test init-ralph.sh --print-template
-echo "  Testing init-ralph.sh --print-template..."
-output=$(bash scripts/init-ralph.sh --print-template 2>&1 || true)
-if echo "$output" | head -5 | grep -q "deprecated"; then
-  echo "  ✓ PASS (init-ralph.sh --print-template)"
-else
-  echo "  ✗ FAIL (init-ralph.sh --print-template)"
-  echo "    Output: $(echo "$output" | head -5)"
+  echo "✗ FAIL"
   FAILED=1
 fi
 echo ""

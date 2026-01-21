@@ -215,6 +215,34 @@ detect_beads_operation() {
   fi
 }
 
+# Detect git commit and extract subject
+detect_git_commit() {
+  local cmd="$1"
+  local stdout="$2"
+  
+  # Only process git commit commands
+  if [[ "$cmd" != *"git commit"* ]]; then
+    return
+  fi
+  
+  local subject=""
+  
+  # Try to parse subject from stdout first (typical format: "[branch sha] subject")
+  if [[ "$stdout" =~ \[.*\]\ (.+) ]]; then
+    subject="${BASH_REMATCH[1]}"
+  # Fallback: parse -m "..." argument from command
+  elif [[ "$cmd" =~ -m[[:space:]]+\"([^\"]+)\" ]]; then
+    subject="${BASH_REMATCH[1]}"
+  elif [[ "$cmd" =~ -m[[:space:]]+'([^']+)' ]]; then
+    subject="${BASH_REMATCH[1]}"
+  fi
+  
+  # Log the commit if we found a subject
+  if [[ -n "$subject" ]]; then
+    log_activity "GIT COMMIT: $subject"
+  fi
+}
+
 # Process a single JSON line from stream
 process_line() {
   local line="$1"
@@ -325,9 +353,10 @@ process_line() {
           local output_chars=$((${#stdout} + ${#stderr}))
           SHELL_OUTPUT_CHARS=$((SHELL_OUTPUT_CHARS + output_chars))
           
-          # Detect Beads operations before general logging
+          # Detect Beads operations and git commits before general logging
           if [[ $exit_code -eq 0 ]]; then
             detect_beads_operation "$cmd" "$stdout"
+            detect_git_commit "$cmd" "$stdout"
           fi
           
           if [[ $exit_code -eq 0 ]]; then

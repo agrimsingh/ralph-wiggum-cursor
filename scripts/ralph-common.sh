@@ -100,20 +100,6 @@ init_run_dir() {
   
   mkdir -p "$run_dir"
   
-  # Initialize progress.md if it doesn't exist
-  if [[ ! -f "$run_dir/progress.md" ]]; then
-    cat > "$run_dir/progress.md" << 'EOF'
-# Progress Log
-
-> Updated by the agent after significant work.
-
----
-
-## Session History
-
-EOF
-  fi
-  
   # Initialize errors.log if it doesn't exist
   if [[ ! -f "$run_dir/errors.log" ]]; then
     cat > "$run_dir/errors.log" << 'EOF'
@@ -259,18 +245,6 @@ log_error() {
   echo "[$timestamp] $message" >> "$run_dir/errors.log"
 }
 
-# Log to progress.md (called by the loop, not the agent)
-log_progress() {
-  local run_dir="$1"
-  local message="$2"
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  local progress_file="$run_dir/progress.md"
-  
-  mkdir -p "$run_dir"
-  echo "" >> "$progress_file"
-  echo "### $timestamp" >> "$progress_file"
-  echo "$message" >> "$progress_file"
-}
 
 # =============================================================================
 # BEADS HELPERS
@@ -551,8 +525,7 @@ You are an autonomous development agent using the Ralph methodology with Beads t
 Before doing anything:
 1. Read \`$rel_task_file\` - your task overview and context
 2. Read \`.ralph/guardrails.md\` - lessons from past failures (FOLLOW THESE)
-3. Read \`$rel_run_dir/progress.md\` - what's been accomplished
-4. Read \`$rel_run_dir/errors.log\` - recent failures to avoid
+3. Read \`$rel_run_dir/errors.log\` - recent failures to avoid
 
 ## Beads Task Tracking
 
@@ -607,9 +580,8 @@ If you get rotated, the next agent picks up from your last commit. Your commits 
 2. Claim it: \`bd update <id> --status in_progress --json\`
 3. Work on the task (check $rel_task_file for test_command if applicable)
 4. Close when done: \`bd close <id> --reason "description" --json\`
-5. Update \`$rel_run_dir/progress.md\` with what you accomplished
-6. Sync: \`bd sync\`
-7. Repeat until no tasks remain
+5. Sync: \`bd sync\`
+6. Repeat until no tasks remain
 
 ## Completion
 
@@ -639,8 +611,7 @@ You may receive a warning that context is running low. When you see it:
 1. Finish your current file edit
 2. Commit and push your changes
 3. Run \`bd sync\` to persist task state
-4. Update $rel_run_dir/progress.md with what you accomplished and what's next
-5. You will be rotated to a fresh agent that continues your work
+4. You will be rotated to a fresh agent that continues your work
 
 Begin by reading the state files, then find your next task with \`bd ready --label $label --json\`.
 EOF
@@ -657,7 +628,7 @@ spinner() {
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   while true; do
-    printf "\r  🐛 Agent working... %s  (watch: tail -f %s/activity.log)" "${spin:i++%${#spin}:1}" "$run_dir" >&2
+    printf "\r  🐛 Agent working... %s" "${spin:i++%${#spin}:1}" >&2
     sleep 0.1
   done
 }
@@ -695,9 +666,6 @@ run_iteration() {
   echo "Model:     $MODEL" >&2
   echo "Monitor:   tail -f $run_dir/activity.log" >&2
   echo "" >&2
-  
-  # Log session start to progress.md
-  log_progress "$run_dir" "**Session $iteration started** (model: $MODEL)"
   
   # Build cursor-agent command
   local cmd="cursor-agent -p --force --output-format stream-json --model $MODEL"
@@ -787,7 +755,11 @@ run_ralph_loop() {
   if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
     echo "📦 Committing uncommitted changes..."
     git add -A
-    git commit -m "ralph: initial commit before loop" || true
+    if git commit -m "ralph: initial commit before loop"; then
+      local commit_subject=$(git log -1 --pretty=%s)
+      local timestamp=$(date '+%H:%M:%S')
+      echo "[$timestamp] 🟢 GIT COMMIT: $commit_subject" >> "$run_dir/activity.log"
+    fi
   fi
   
   # Create branch if requested
@@ -814,7 +786,6 @@ run_ralph_loop() {
     task_status=$(check_task_complete "$run_dir")
     
     if [[ "$task_status" == "COMPLETE" ]]; then
-      log_progress "$run_dir" "**Session $iteration ended** - ✅ TASK COMPLETE"
       echo ""
       echo "═══════════════════════════════════════════════════════════════════"
       echo "🎉 RALPH COMPLETE! All Beads tasks satisfied."
@@ -843,7 +814,6 @@ run_ralph_loop() {
       "COMPLETE")
         # Agent signaled completion - verify with Beads check
         if [[ "$task_status" == "COMPLETE" ]]; then
-          log_progress "$run_dir" "**Session $iteration ended** - ✅ TASK COMPLETE (agent signaled)"
           echo ""
           echo "═══════════════════════════════════════════════════════════════════"
           echo "🎉 RALPH COMPLETE! Agent signaled completion and all tasks verified."
@@ -867,7 +837,6 @@ run_ralph_loop() {
           return 0
         else
           # Agent said complete but Beads says otherwise - continue
-          log_progress "$run_dir" "**Session $iteration ended** - Agent signaled complete but tasks remain"
           echo ""
           echo "⚠️  Agent signaled completion but open tasks remain."
           echo "   Continuing with next iteration..."
@@ -875,14 +844,12 @@ run_ralph_loop() {
         fi
         ;;
       "ROTATE")
-        log_progress "$run_dir" "**Session $iteration ended** - 🔄 Context rotation (token limit reached)"
         echo ""
         echo "🔄 Rotating to fresh context..."
         iteration=$((iteration + 1))
         session_id=""
         ;;
       "GUTTER")
-        log_progress "$run_dir" "**Session $iteration ended** - 🚨 GUTTER (agent stuck)"
         echo ""
         echo "🚨 Gutter detected. Check $run_dir/errors.log for details."
         echo "   The agent may be stuck. Consider:"
@@ -895,7 +862,6 @@ run_ralph_loop() {
         # Agent finished naturally, check if more work needed
         if [[ "$task_status" == INCOMPLETE:* ]]; then
           local remaining_count=${task_status#INCOMPLETE:}
-          log_progress "$run_dir" "**Session $iteration ended** - Agent finished naturally ($remaining_count tasks remaining)"
           echo ""
           echo "📋 Agent finished but $remaining_count tasks remaining."
           echo "   Starting next iteration..."
@@ -908,7 +874,6 @@ run_ralph_loop() {
     sleep 2
   done
   
-  log_progress "$run_dir" "**Loop ended** - ⚠️ Max iterations ($MAX_ITERATIONS) reached"
   echo ""
   echo "⚠️  Max iterations ($MAX_ITERATIONS) reached."
   echo "   Task may not be complete. Check progress manually."

@@ -165,7 +165,7 @@ fi
 echo "📁 Initializing .ralph/ state directory..."
 
 # Only create guardrails.md at the top level (shared across runs)
-# Per-run state (activity.log, errors.log, progress.md) is created in .ralph/runs/<runId>/
+# Per-run state (activity.log, errors.log) is created in .ralph/runs/<runId>/
 if [[ ! -f ".ralph/guardrails.md" ]]; then
   cat > .ralph/guardrails.md << 'EOF'
 # Ralph Guardrails (Signs)
@@ -264,7 +264,6 @@ echo "  📁 .ralph/"
 echo "     └── guardrails.md           - Lessons learned (shared)"
 echo ""
 echo "  📁 .ralph/runs/<runId>/        - Per-run state (created on first run)"
-echo "     ├── progress.md             - Progress log"
 echo "     ├── activity.log            - Tool call log"
 echo "     ├── errors.log              - Failure log"
 echo "     ├── beads.label             - Beads label for this run"
