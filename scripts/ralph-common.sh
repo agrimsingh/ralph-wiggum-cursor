@@ -381,7 +381,7 @@ run_iteration() {
   log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
   
   # Build claude CLI command
-  local cmd="claude -p --verbose --output-format stream-json --model $MODEL"
+  local cmd="claude -p --verbose --output-format stream-json --dangerously-skip-permissions --model $MODEL"
   
   if [[ -n "$session_id" ]]; then
     echo "Resuming session: $session_id" >&2
