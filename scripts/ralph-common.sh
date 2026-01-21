@@ -35,11 +35,26 @@ RALPH_SPINNER_PID=""
 RALPH_AGENT_PID=""
 RALPH_FIFO=""
 
+# Kill a process and all its children
+kill_tree() {
+  local pid="$1"
+  [[ -z "$pid" ]] && return
+  # Kill children first (recursively)
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child"
+  done
+  # Then kill the process itself
+  kill "$pid" 2>/dev/null || true
+}
+
 # Cleanup function to kill background processes
 ralph_cleanup() {
   printf "\r\033[K" >&2  # Clear spinner line
-  [[ -n "$RALPH_SPINNER_PID" ]] && kill $RALPH_SPINNER_PID 2>/dev/null || true
-  [[ -n "$RALPH_AGENT_PID" ]] && kill $RALPH_AGENT_PID 2>/dev/null || true
+  # Kill process trees to ensure all children are terminated
+  [[ -n "$RALPH_SPINNER_PID" ]] && kill_tree $RALPH_SPINNER_PID
+  [[ -n "$RALPH_AGENT_PID" ]] && kill_tree $RALPH_AGENT_PID
   [[ -n "$RALPH_FIFO" ]] && rm -f "$RALPH_FIFO"
   # Reset state
   RALPH_SPINNER_PID=""
@@ -67,6 +82,9 @@ ralph_interrupt_handler() {
     RALPH_LAST_INTERRUPT=$now
   fi
 }
+
+# Set up EXIT trap to ensure cleanup on any exit
+trap ralph_cleanup EXIT
 
 # =============================================================================
 # BASIC HELPERS
