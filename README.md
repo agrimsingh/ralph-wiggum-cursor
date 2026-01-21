@@ -564,20 +564,6 @@ wait
 ./ralph --task-file plans/my-task.md
 ```
 
-## Deprecated Scripts
-
-The following scripts are deprecated and will be removed in a future version. Use `ralph` instead:
-
-| Deprecated Script | Replacement |
-|-------------------|-------------|
-| `scripts/ralph-setup.sh` | `ralph` |
-| `scripts/ralph-once.sh` | `ralph once` |
-| `scripts/ralph-loop.sh` | `ralph` |
-| `scripts/init-ralph.sh` | `ralph init` |
-| `scripts/init-ralph.sh --print-template` | `ralph template` |
-
-These scripts now act as thin wrappers that delegate to `ralph` and print deprecation warnings. They will be removed in a future version.
-
 ## Learn More
 
 - [Original Ralph technique](https://ghuntley.com/ralph/) - Geoffrey Huntley

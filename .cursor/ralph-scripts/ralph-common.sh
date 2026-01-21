@@ -1,7 +1,7 @@
 #!/bin/bash
 # Ralph Wiggum: Common utilities and loop logic
 #
-# Shared functions for ralph-loop.sh and ralph-setup.sh
+# Shared functions for Ralph scripts
 # All state lives in .ralph/ within the project.
 
 # =============================================================================

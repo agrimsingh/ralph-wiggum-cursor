@@ -1,7 +1,7 @@
 #!/bin/bash
 # Ralph Wiggum: Common utilities and loop logic
 #
-# Shared functions for ralph-loop.sh and ralph-setup.sh
+# Shared functions for Ralph scripts
 # All state lives in .ralph/runs/<runId>/ within the project.
 #
 # Supports multiple task files running in parallel via isolated run directories.
@@ -901,10 +901,10 @@ check_prerequisites() {
     echo "Options:"
     echo ""
     echo "  1. Create a task file and pass it via --task-file:"
-    echo "     ./.cursor/ralph-scripts/ralph-setup.sh --task-file plans/my-task.md"
+    echo "     ./ralph --task-file plans/my-task.md"
     echo ""
     echo "  2. Get the template and customize it:"
-    echo "     ./.cursor/ralph-scripts/init-ralph.sh --print-template > plans/my-task.md"
+    echo "     ./ralph template > plans/my-task.md"
     echo ""
     echo "  3. Use the legacy default (RALPH_TASK.md in workspace root):"
     echo "     # Create RALPH_TASK.md, then run without --task-file"
@@ -920,8 +920,8 @@ check_prerequisites() {
     echo "  2. POST /users creates a user"
     echo ""
     echo "Multi-plan example:"
-    echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/api.md --run-id api"
-    echo "  ./.cursor/ralph-scripts/ralph-loop.sh --task-file plans/ui.md --run-id ui"
+    echo "  ./ralph --task-file plans/api.md --run-id api"
+    echo "  ./ralph --task-file plans/ui.md --run-id ui"
     echo ""
     return 1
   fi
