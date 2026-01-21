@@ -72,6 +72,24 @@ ralph_interrupt_handler() {
 # BASIC HELPERS
 # =============================================================================
 
+# Get git root for a directory, or exit with error if not in a git repo
+# Usage: workspace=$(resolve_git_root "$workspace")
+resolve_git_root() {
+  local dir="${1:-.}"
+
+  # Check if in a git repo
+  if ! git -C "$dir" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "❌ Not in a git repository: $dir" >&2
+    echo "   Ralph requires git for state persistence." >&2
+    echo "" >&2
+    echo "   Run: git init" >&2
+    return 1
+  fi
+
+  # Return the git root
+  git -C "$dir" rev-parse --show-toplevel
+}
+
 # Cross-platform sed -i
 sedi() {
   if [[ "$OSTYPE" == "darwin"* ]]; then

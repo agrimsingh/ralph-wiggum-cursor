@@ -115,7 +115,7 @@ done
 # =============================================================================
 
 main() {
-  # Resolve workspace
+  # Resolve workspace to absolute path
   if [[ -z "$WORKSPACE" ]]; then
     WORKSPACE="$(pwd)"
   elif [[ "$WORKSPACE" == "." ]]; then
@@ -123,12 +123,23 @@ main() {
   else
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
   fi
-  
-  local task_file="$WORKSPACE/RALPH_TASK.md"
-  
+
   # Show banner
   show_banner
-  
+
+  # Resolve to git root (exits with error if not in a git repo)
+  local git_root
+  if ! git_root=$(resolve_git_root "$WORKSPACE"); then
+    exit 1
+  fi
+  if [[ "$WORKSPACE" != "$git_root" ]]; then
+    echo "📂 Moving to git root: $git_root"
+    echo ""
+    WORKSPACE="$git_root"
+  fi
+
+  local task_file="$WORKSPACE/RALPH_TASK.md"
+
   # Check prerequisites
   if ! check_prerequisites "$WORKSPACE"; then
     exit 1

@@ -180,21 +180,32 @@ main() {
     workspace="$(pwd)"
   fi
   workspace="$(cd "$workspace" && pwd)"
-  
-  local task_file="$workspace/RALPH_TASK.md"
-  
+
   # Show banner
   echo ""
   show_header "🐛 Ralph Wiggum: Autonomous Development Loop"
   echo ""
-  
+
   if [[ "$HAS_GUM" == "true" ]]; then
     echo "  Using gum for enhanced UI ✨"
   else
     echo "  💡 Install gum for a better experience: https://github.com/charmbracelet/gum#installation"
   fi
   echo ""
-  
+
+  # Resolve to git root (exits with error if not in a git repo)
+  local git_root
+  if ! git_root=$(resolve_git_root "$workspace"); then
+    exit 1
+  fi
+  if [[ "$workspace" != "$git_root" ]]; then
+    echo "📂 Moving to git root: $git_root"
+    echo ""
+    workspace="$git_root"
+  fi
+
+  local task_file="$workspace/RALPH_TASK.md"
+
   # Check prerequisites
   if ! check_prerequisites "$workspace"; then
     exit 1

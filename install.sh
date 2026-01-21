@@ -13,10 +13,18 @@ echo ""
 
 # Check if we're in a git repo
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
-  echo "⚠️  Warning: Not in a git repository."
-  echo "   Ralph works best with git for state persistence."
+  echo "❌ Not in a git repository."
+  echo "   Ralph requires git for state persistence."
   echo ""
   echo "   Run: git init"
+  exit 1
+fi
+
+# Navigate to git root if in a subdirectory
+GIT_ROOT="$(git rev-parse --show-toplevel)"
+if [[ "$PWD" != "$GIT_ROOT" ]]; then
+  echo "📂 Moving to git root: $GIT_ROOT"
+  cd "$GIT_ROOT"
   echo ""
 fi
 
