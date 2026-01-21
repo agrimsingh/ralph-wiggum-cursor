@@ -340,11 +340,11 @@ EOF
 # Spinner to show the loop is alive (not frozen)
 # Outputs to stderr so it's not captured by $()
 spinner() {
-  local workspace="$1"
+  local run_dir="$1"
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   while true; do
-    printf "\r  🐛 Agent working... %s  (watch: tail -f %s/.ralph/activity.log)" "${spin:i++%${#spin}:1}" "$workspace" >&2
+    printf "\r  🐛 Agent working... %s" "${spin:i++%${#spin}:1}" >&2
     sleep 0.1
   done
 }
