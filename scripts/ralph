@@ -560,7 +560,11 @@ main() {
     if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
       echo "Committing uncommitted changes..."
       git add -A
-      git commit -m "ralph: checkpoint before single iteration" || true
+      if git commit -m "ralph: checkpoint before single iteration"; then
+        local commit_subject=$(git log -1 --pretty=%s)
+        local timestamp=$(date '+%H:%M:%S')
+        echo "[$timestamp] 🟢 GIT COMMIT: $commit_subject" >> "$run_dir/activity.log"
+      fi
     fi
     
     echo ""
