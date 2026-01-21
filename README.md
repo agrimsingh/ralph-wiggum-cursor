@@ -38,7 +38,7 @@ This creates two problems:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         ./ralph                              │
+│                         ralph                              │
 │                           │                                  │
 │              ┌────────────┴────────────┐                    │
 │              ▼                         ▼                    │
@@ -49,7 +49,7 @@ This creates two problems:
 │              │                         │                    │
 │              └────────────┬────────────┘                    │
 │                           ▼                                  │
-│    cursor-agent -p --force --output-format stream-json       │
+│    agent -p --force --output-format stream-json       │
 │                           │                                  │
 │                           ▼                                  │
 │                   stream-parser.sh                           │
@@ -57,8 +57,8 @@ This creates two problems:
 │     ┌────────────────┴────────┴────────────────┐            │
 │     ▼                                           ▼            │
 │  Per-run state (.ralph/runs/<runId>/)       Signals          │
-│  ├── activity.log  (tool calls)             ├── WARN at 70k │
-│  ├── errors.log    (failures)               ├── ROTATE at 80k│
+│  ├── activity.log  (tool calls)             ├── WARN (~70-87%)│
+│  ├── errors.log    (failures)               ├── ROTATE (80%) │
 │  ├── beads.label   (task label)             ├── COMPLETE    │
 │  └── beads.root_id (epic ID)                └── GUTTER      │
 │                                                              │
@@ -82,12 +82,12 @@ This creates two problems:
 
 ## Prerequisites
 
-| Requirement          | Check                | How to Set Up                                      |
-| -------------------- | -------------------- | -------------------------------------------------- |
-| **Git repo**         | `git status` works   | `git init`                                         |
-| **bd (Beads)**       | `which bd`           | See [Beads install](#install-beads)                |
-| **cursor-agent CLI** | `which cursor-agent` | `curl https://cursor.com/install -fsS \| bash`     |
-| **gum** (optional)   | `which gum`          | Installer offers to install, or `brew install gum` |
+| Requirement        | Check              | How to Set Up                                      |
+| ------------------ | ------------------ | -------------------------------------------------- |
+| **Git repo**       | `git status` works | `git init`                                         |
+| **bd (Beads)**     | `which bd`         | See [Beads install](#install-beads)                |
+| **agent CLI**      | `which agent`      | `curl https://cursor.com/install -fsS \| bash`     |
+| **gum** (optional) | `which gum`        | Installer offers to install, or `brew install gum` |
 
 ### Install Beads
 
@@ -116,7 +116,7 @@ bd init --stealth --quiet
 
 ```bash
 cd your-project
-curl -fsSL https://raw.githubusercontent.com/agrimsingh/ralph-wiggum-cursor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cookrn/ralph/main/install.sh | bash
 ```
 
 This creates:
@@ -126,7 +126,6 @@ your-project/
 ├── ralph                       # Main entry point
 ├── .cursor/ralph-scripts/      # Internal scripts
 │   ├── ralph                   # CLI implementation
-│   ├── ralph-common.sh         # Shared functions
 │   └── stream-parser.sh        # Token tracking
 ├── .ralph/                     # State files
 │   ├── guardrails.md           # Lessons learned (shared)
@@ -153,11 +152,11 @@ Ralph uses **Beads-first task tracking**. You bring your own task/plan file — 
 
 ```bash
 # Get the template
-./ralph --print-template > RALPH_TASK.md
+ralph --print-template > RALPH_TASK.md
 
 # Or put it in a plans directory
 mkdir -p plans
-./ralph --print-template > plans/api.md
+ralph --print-template > plans/api.md
 ```
 
 Edit your plan file (e.g., `plans/api.md`):
@@ -198,41 +197,59 @@ The following will be converted to Beads tasks when you first run Ralph:
 
 ```bash
 # Run with default task file (RALPH_TASK.md)
-./ralph
+ralph
 
 # Or with a custom plan file
-./ralph --task-file plans/api.md
+ralph --task-file plans/api.md
 
 # Or with a custom run ID for parallel runs
-./ralph --task-file plans/api.md --run-id api
+ralph --task-file plans/api.md --run-id api
 ```
 
 Ralph will:
 
 1. Bootstrap Beads issues from your Success Criteria (first run only)
 2. Show interactive UI for model and options (or simple prompts if gum not installed)
-3. Run `cursor-agent` with your task
+3. Run `agent` with your task
 4. Agent works via `bd ready` → `bd update --status in_progress` → `bd close`
-5. At 70k tokens: warn agent to wrap up current work
-6. At 80k tokens: rotate to fresh context
+5. At warning threshold: warn agent to wrap up current work (model-specific, ~70-87% of limit)
+6. At rotation threshold: rotate to fresh context (model-specific, 80% of published max context window)
 7. Repeat until all Beads tasks are closed (or max iterations reached)
+
+**Token limits are model-specific** - Ralph automatically adjusts thresholds based on the selected model's published context window size. Limits are set to **80% of the model's maximum context window** to leave headroom for system prompts and safety margin.
 
 **Legacy fallback:** If `RALPH_TASK.md` exists and you don't pass `--task-file`, Ralph will use it.
 
 ### 5. Monitor Progress
 
-```bash
-# See all Beads tasks for this run
-bd list --label ralph:<runId> --json
+Progress is streamed **inline in the agent's main output** (stdout) as well as written to the activity log file. You'll see real-time updates directly in your terminal showing:
 
-# Watch activity in real-time
+- File reads/writes with token counts
+- Shell command executions and results
+- Current token usage and context health
+- Beads task status updates
+
+**Watching progress:**
+
+```bash
+# Progress streams inline in the main output - just watch the terminal!
+ralph --task-file plans/api.md
+
+# You can also monitor the activity log file separately
 tail -f .ralph/runs/<runId>/activity.log
 
-# Example output:
+# Example output (both inline and in activity.log):
+# ═══════════════════════════════════════════════════════════════
+# Ralph Session Started: Mon Jan 15 12:34:00 PST 2025
+# Model: opus-4.5-thinking | Token limit: 160000 (warn: 140000)
+# ═══════════════════════════════════════════════════════════════
 # [12:34:56] 🟢 READ src/index.ts (245 lines, ~24.5KB)
 # [12:34:58] 🟢 WRITE src/routes/users.ts (50 lines, 2.1KB)
 # [12:35:01] 🟢 SHELL npm test → exit 0
-# [12:35:10] 🟢 TOKENS: 45,230 / 80,000 (56%)
+# [12:35:10] 🟢 TOKENS: 45,230 / 160,000 (28%)
+
+# See all Beads tasks for this run
+bd list --label ralph:<runId> --json
 
 # Check for failures
 cat .ralph/runs/<runId>/errors.log
@@ -244,10 +261,10 @@ Ralph is designed for **multi-plan workflows**. Run multiple tasks in parallel w
 
 ```bash
 # Terminal 1: Work on API
-./ralph --task-file plans/api.md --run-id api -y &
+ralph --task-file plans/api.md --run-id api -y &
 
 # Terminal 2: Work on UI
-./ralph --task-file plans/ui.md --run-id ui -y &
+ralph --task-file plans/ui.md --run-id ui -y &
 
 # Wait for both
 wait
@@ -277,7 +294,7 @@ your-project/
 ## Usage
 
 ```bash
-./ralph [options] [workspace]
+ralph [options] [workspace]
 
 Options:
   --task-file, -f FILE   Task/plan file (default: RALPH_TASK.md)
@@ -297,39 +314,39 @@ Options:
 
 ```bash
 # Print template to stdout (pipe to file)
-./ralph --print-template > RALPH_TASK.md
+ralph --print-template > RALPH_TASK.md
 
 # Or to a plans directory
-./ralph --print-template > plans/my-task.md
+ralph --print-template > plans/my-task.md
 
 # Or copy to clipboard (macOS)
-./ralph --print-template | pbcopy
+ralph --print-template | pbcopy
 ```
 
 ### Examples
 
 ```bash
 # Run with default task file (RALPH_TASK.md)
-./ralph
+ralph
 
 # Run with custom plan file
-./ralph --task-file plans/api.md
+ralph --task-file plans/api.md
 
 # Test single iteration before going AFK
-./ralph --once
+ralph --once
 
 # Limit iterations
-./ralph --limit=10
+ralph --limit=10
 
 # Scripted PR workflow
-./ralph --task-file plans/api.md --branch feature/api --pr -y
+ralph --task-file plans/api.md --branch feature/api --pr -y
 
 # Use a different model
-./ralph --task-file plans/api.md --model gpt-5.2-high
+ralph --task-file plans/api.md --model gpt-5.2-high
 
 # Parallel runs with different tasks
-./ralph --task-file plans/api.md --run-id api -y &
-./ralph --task-file plans/ui.md --run-id ui -y &
+ralph --task-file plans/api.md --run-id api -y &
+ralph --task-file plans/ui.md --run-id ui -y &
 ```
 
 ### Environment Variables
@@ -361,7 +378,8 @@ Iteration 1                    Iteration 2                    Iteration N
 │ Commit to git    │          │ Commit to git    │          │ Commit to git    │
 │       │          │          │       │          │          │       │          │
 │       ▼          │          │       ▼          │          │       ▼          │
-│ 80k tokens       │          │ 80k tokens       │          │ All tasks closed!│
+│ Token limit hit  │          │ Token limit hit  │          │ All tasks closed!│
+│ (80% of model)   │          │ (80% of model)   │          │                  │
 │ ROTATE ──────────┼──────────┼──────────────────┼──────────┼──► COMPLETE      │
 └──────────────────┘          └──────────────────┘          └──────────────────┘
 ```
@@ -423,9 +441,29 @@ When something fails, the agent adds a "Sign" to `.ralph/guardrails.md`:
 
 Future iterations read guardrails first and follow them, preventing repeated mistakes.
 
+## Model-Specific Token Limits
+
+Ralph uses **model-aware token thresholds** set to **80% of each model's published maximum context window**. This leaves headroom for system prompts and provides a safety margin.
+
+| Model                    | Published Context | Rotation Threshold (80%) | Warning Threshold |
+| ------------------------ | ----------------- | ------------------------ | ----------------- |
+| sonnet-4.5-thinking      | 1M tokens         | 800,000                  | 700,000           |
+| gemini-3-pro             | 1M tokens         | 800,000                  | 700,000           |
+| gpt-5.2-high             | 272k tokens       | 217,600                  | 190,000           |
+| opus-4.5-thinking        | 200k tokens       | 160,000                  | 140,000           |
+| composer-1               | 200k tokens       | 160,000                  | 140,000           |
+| sonnet-4 / claude-sonnet | 200k tokens       | 160,000                  | 140,000           |
+| opus / claude-opus       | 200k tokens       | 160,000                  | 140,000           |
+| custom/unknown           | 100k (default)    | 80,000                   | 70,000            |
+
+The token limit is displayed at session start and in all token status updates. For example:
+
+- `TOKENS: 45,230 / 160,000 (28%)` for opus-4.5-thinking
+- `TOKENS: 650,000 / 800,000 (81%)` for sonnet-4.5-thinking
+
 ## Context Health Indicators
 
-The activity log shows context health with emoji:
+The activity log shows context health with emoji (percentages are relative to the model-specific rotation threshold):
 
 | Emoji | Status   | Token % | Meaning           |
 | ----- | -------- | ------- | ----------------- |
@@ -460,16 +498,16 @@ Both are verified before declaring success.
 
 ## File Reference
 
-| File                                | Purpose                               | Who Uses It                              |
-| ----------------------------------- | ------------------------------------- | ---------------------------------------- |
-| `ralph`                             | Main entry point                      | You run this                             |
-| `RALPH_TASK.md`                     | Default task file (gitignored)        | Default if no `--task-file`              |
-| `plans/*.md` (or any path)          | Task/plan files (BYO)                 | Pass via `--task-file`                   |
-| `.ralph/guardrails.md`              | Lessons learned (Signs)               | Agent reads first, writes after failures |
-| `.ralph/runs/<runId>/activity.log`  | Tool call log with token counts       | Parser writes, you monitor               |
-| `.ralph/runs/<runId>/errors.log`    | Failures + gutter detection           | Parser writes, agent reads               |
-| `.ralph/runs/<runId>/beads.label`   | Beads label for filtering             | Ralph reads/writes                       |
-| `.ralph/runs/<runId>/beads.root_id` | Root epic ID                          | Ralph reads/writes                       |
+| File                                | Purpose                         | Who Uses It                              |
+| ----------------------------------- | ------------------------------- | ---------------------------------------- |
+| `ralph`                             | Main entry point                | You run this                             |
+| `RALPH_TASK.md`                     | Default task file (gitignored)  | Default if no `--task-file`              |
+| `plans/*.md` (or any path)          | Task/plan files (BYO)           | Pass via `--task-file`                   |
+| `.ralph/guardrails.md`              | Lessons learned (Signs)         | Agent reads first, writes after failures |
+| `.ralph/runs/<runId>/activity.log`  | Tool call log with token counts | Parser writes, you monitor               |
+| `.ralph/runs/<runId>/errors.log`    | Failures + gutter detection     | Parser writes, agent reads               |
+| `.ralph/runs/<runId>/beads.label`   | Beads label for filtering       | Ralph reads/writes                       |
+| `.ralph/runs/<runId>/beads.root_id` | Root epic ID                    | Ralph reads/writes                       |
 
 ## Troubleshooting
 
@@ -482,7 +520,7 @@ curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/insta
 bd init --stealth --quiet
 ```
 
-### "cursor-agent CLI not found"
+### "agent CLI not found"
 
 ```bash
 curl https://cursor.com/install -fsS | bash
@@ -520,48 +558,48 @@ Run `bd sync` manually to force synchronization.
 
 ```bash
 # Create your task file
-./ralph --print-template > RALPH_TASK.md
+ralph --print-template > RALPH_TASK.md
 # Edit RALPH_TASK.md...
 
 # Run Ralph
-./ralph
+ralph
 ```
 
 ### Human-in-the-loop (recommended for new tasks)
 
 ```bash
 # Test ONE iteration first
-./ralph --once
+ralph --once
 # Review changes...
 
 # Continue with full loop
-./ralph
+ralph
 ```
 
 ### Parallel tasks
 
 ```bash
 # Run two different task files in parallel
-./ralph --task-file plans/api.md --run-id api -y &
-./ralph --task-file plans/ui.md --run-id ui -y &
+ralph --task-file plans/api.md --run-id api -y &
+ralph --task-file plans/ui.md --run-id ui -y &
 wait
 ```
 
 ### Scripted/CI
 
 ```bash
-./ralph --task-file plans/api.md --branch feature/api --pr -y
+ralph --task-file plans/api.md --branch feature/api --pr -y
 ```
 
 ### Custom task file
 
 ```bash
 # Create task file anywhere
-./ralph --print-template > plans/my-task.md
+ralph --print-template > plans/my-task.md
 # Edit plans/my-task.md...
 
 # Run with custom task file
-./ralph --task-file plans/my-task.md
+ralph --task-file plans/my-task.md
 ```
 
 ## Learn More
@@ -569,13 +607,14 @@ wait
 - [Original Ralph technique](https://ghuntley.com/ralph/) - Geoffrey Huntley
 - [Context as memory](https://ghuntley.com/allocations/) - The malloc/free metaphor
 - [Beads issue tracker](https://github.com/steveyegge/beads) - Git-backed task tracking for agents
-- [Cursor CLI docs](https://cursor.com/docs/cli/headless)
+- [Cursor Agent CLI docs](https://cursor.com/docs/cli/headless)
 - [gum - A tool for glamorous shell scripts](https://github.com/charmbracelet/gum)
 
 ## Credits
 
 - **Original technique**: [Geoffrey Huntley](https://ghuntley.com/ralph/) - the Ralph Wiggum methodology
-- **Cursor port**: [Agrim Singh](https://x.com/agrimsingh) - this implementation
+- **Original Cursor port**: [Agrim Singh](https://x.com/agrimsingh) - original cursor-agent implementation
+- **Updated Cursor port to use Beads**: [Ryan Cook](https://x.com/cookrn) - this implementation
 - **Beads integration**: For structured task tracking
 
 ## License

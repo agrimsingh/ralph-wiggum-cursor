@@ -29,7 +29,7 @@ Improve the UX so that when `./ralph` runs, you can see the same activity live i
 
 3. Visible file-change activity
    - The activity stream should clearly show when files are modified, not only when they are read.
-   - In particular: teach the parser to recognize the file-edit tool events produced by `cursor-agent` (not just `writeToolCall`) so that PATCH/EDIT/DELETE operations surface as activity lines.
+   - In particular: teach the parser to recognize the file-edit tool events produced by `agent` (not just `writeToolCall`) so that PATCH/EDIT/DELETE operations surface as activity lines.
 
 ### Non-Functional Requirements
 
@@ -51,7 +51,7 @@ Progress is tracked via `bd ready`, `bd close`, etc.
 1. Running `./scripts/ralph once` shows live per-tool activity inline in the terminal without needing a separate `tail -f .ralph/runs/<runId>/activity.log`.
 2. `scripts/stream-parser.sh` continues to emit only control signals (`WARN`/`ROTATE`/`GUTTER`/`COMPLETE`) on stdout so `scripts/ralph-common.sh` signal handling is unchanged.
 3. Activity stream/log shows explicit “TASK START” and “TASK FINISH” lines for Beads operations, including Beads ID + title when available from `--json`.
-4. Activity stream/log shows file changes (PATCH/EDIT/DELETE/WRITE) for real edits produced by `cursor-agent` (not just shell commands).
+4. Activity stream/log shows file changes (PATCH/EDIT/DELETE/WRITE) for real edits produced by `agent` (not just shell commands).
 5. `bash -n scripts/ralph scripts/*.sh` still passes.
 
 ## Notes

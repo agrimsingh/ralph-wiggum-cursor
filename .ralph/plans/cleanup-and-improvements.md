@@ -67,7 +67,7 @@ isProject: false
 
 There are two sources of commits:
 
-- **Agent commits** (via `cursor-agent` shell tool calls) — these already show up as `SHELL ...` in the activity stream because `scripts/stream-parser.sh` parses `shellToolCall` completion.
+- **Agent commits** (via `agent` shell tool calls) — these already show up as `SHELL ...` in the activity stream because `scripts/stream-parser.sh` parses `shellToolCall` completion.
 - **Loop commits** (e.g. “checkpoint before loop/single iteration”) — these are run by `scripts/ralph`/`scripts/ralph-common.sh` directly and currently **do not** emit activity events.
 
 Plan:

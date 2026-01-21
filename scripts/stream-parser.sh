@@ -1,11 +1,11 @@
 #!/bin/bash
 # Ralph Wiggum: Stream Parser
 #
-# Parses cursor-agent stream-json output in real-time.
+# Parses agent stream-json output in real-time.
 # Tracks token usage, detects failures/gutter, writes to per-run state directory.
 #
 # Usage:
-#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace /path/to/run_dir [model]
+#   agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace /path/to/run_dir [model]
 #
 # Arguments:
 #   $1 - workspace: path to the workspace root

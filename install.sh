@@ -1,10 +1,10 @@
 #!/bin/bash
 # Ralph Wiggum: One-click installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/agrimsingh/ralph-wiggum-cursor/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/cookrn/ralph/main/install.sh | bash
 
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/agrimsingh/ralph-wiggum-cursor/main"
+REPO_RAW="https://raw.githubusercontent.com/cookrn/ralph/main"
 
 echo "═══════════════════════════════════════════════════════════════════"
 echo "🐛 Ralph Wiggum Installer"
@@ -23,9 +23,9 @@ if ! git rev-parse --git-dir > /dev/null 2>&1; then
   echo ""
 fi
 
-# Check for cursor-agent CLI
-if ! command -v cursor-agent &> /dev/null; then
-  echo "⚠️  Warning: cursor-agent CLI not found."
+# Check for agent CLI
+if ! command -v agent &> /dev/null; then
+  echo "⚠️  Warning: agent CLI not found."
   echo "   Install via: curl https://cursor.com/install -fsS | bash"
   echo ""
 fi
@@ -134,7 +134,6 @@ echo "📥 Downloading Ralph scripts..."
 # Internal scripts (not user-facing)
 INTERNAL_SCRIPTS=(
   "ralph"
-  "ralph-common.sh"
   "stream-parser.sh"
 )
 
@@ -257,7 +256,6 @@ echo "  ./ralph                        - Main entry point"
 echo ""
 echo "  📁 .cursor/ralph-scripts/      - Internal scripts"
 echo "     ├── ralph                   - CLI implementation"
-echo "     ├── ralph-common.sh         - Shared functions"
 echo "     └── stream-parser.sh        - Token tracking"
 echo ""
 echo "  📁 .ralph/"
