@@ -87,11 +87,11 @@ select_model() {
 get_max_iterations() {
   if [[ "$HAS_GUM" == "true" ]]; then
     local value
-    value=$(gum input --header "Max iterations:" --placeholder "20" --value "20")
-    echo "${value:-20}"
+    value=$(gum input --header "Max iterations:" --placeholder "11" --value "11")
+    echo "${value:-11}"
   else
-    read -p "Max iterations [20]: " value
-    echo "${value:-20}"
+    read -p "Max iterations [11]: " value
+    echo "${value:-11}"
   fi
 }
 

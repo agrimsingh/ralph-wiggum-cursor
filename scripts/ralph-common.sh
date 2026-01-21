@@ -446,14 +446,6 @@ run_iteration() {
   # Log session start to progress.md
   log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
   
-  # Build claude CLI command
-  local cmd="claude -p --verbose --output-format stream-json --dangerously-skip-permissions --model $MODEL"
-  
-  if [[ -n "$session_id" ]]; then
-    echo "Resuming session: $session_id" >&2
-    cmd="$cmd -r \"$session_id\""
-  fi
-  
   # Change to workspace
   cd "$workspace"
 
@@ -461,10 +453,17 @@ run_iteration() {
   spinner "$workspace" &
   RALPH_SPINNER_PID=$!
 
+  # Build claude CLI arguments
+  local -a claude_args=(-p --verbose --output-format stream-json --dangerously-skip-permissions --model "$MODEL")
+  if [[ -n "$session_id" ]]; then
+    echo "Resuming session: $session_id" >&2
+    claude_args+=(-r "$session_id")
+  fi
+
   # Start parser in background, reading from claude CLI
-  # Parser outputs to fifo, we read signals from fifo
+  # Pass prompt via stdin to avoid shell escaping issues
   (
-    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    echo "$prompt" | claude "${claude_args[@]}" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
   ) &
   RALPH_AGENT_PID=$!
   
@@ -530,11 +529,11 @@ run_ralph_loop() {
   
   # Commit any uncommitted work first
   cd "$workspace"
-  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    echo "📦 Committing uncommitted changes..."
-    git add -A
-    git commit -m "ralph: initial commit before loop" || true
-  fi
+  #if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  #  echo "📦 Committing uncommitted changes..."
+  #  git add -A
+  #  git commit -m "ralph: initial commit before loop" || true
+  #fi
   
   # Create branch if requested
   if [[ -n "$USE_BRANCH" ]]; then
