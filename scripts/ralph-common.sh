@@ -25,6 +25,50 @@ OPEN_PR="${OPEN_PR:-false}"
 SKIP_CONFIRM="${SKIP_CONFIRM:-false}"
 
 # =============================================================================
+# INTERRUPT HANDLING
+# =============================================================================
+
+# Track interrupt state for double Ctrl+C pattern
+RALPH_INTERRUPT_COUNT=0
+RALPH_LAST_INTERRUPT=0
+RALPH_SPINNER_PID=""
+RALPH_AGENT_PID=""
+RALPH_FIFO=""
+
+# Cleanup function to kill background processes
+ralph_cleanup() {
+  printf "\r\033[K" >&2  # Clear spinner line
+  [[ -n "$RALPH_SPINNER_PID" ]] && kill $RALPH_SPINNER_PID 2>/dev/null || true
+  [[ -n "$RALPH_AGENT_PID" ]] && kill $RALPH_AGENT_PID 2>/dev/null || true
+  [[ -n "$RALPH_FIFO" ]] && rm -f "$RALPH_FIFO"
+  # Reset state
+  RALPH_SPINNER_PID=""
+  RALPH_AGENT_PID=""
+  RALPH_FIFO=""
+}
+
+# Interrupt handler - requires double Ctrl+C to exit
+ralph_interrupt_handler() {
+  local now=$(date +%s)
+  local elapsed=$((now - RALPH_LAST_INTERRUPT))
+
+  if [[ $elapsed -le 2 ]]; then
+    # Second Ctrl+C within 2 seconds - exit
+    printf "\r\033[K" >&2
+    echo "" >&2
+    echo "🛑 Interrupted. Cleaning up..." >&2
+    ralph_cleanup
+    exit 130
+  else
+    # First Ctrl+C - warn user
+    printf "\r\033[K" >&2
+    echo "" >&2
+    echo "⚠️  Press Ctrl+C again within 2 seconds to stop Ralph" >&2
+    RALPH_LAST_INTERRUPT=$now
+  fi
+}
+
+# =============================================================================
 # BASIC HELPERS
 # =============================================================================
 
@@ -358,10 +402,14 @@ run_iteration() {
   local iteration="$2"
   local session_id="${3:-}"
   local script_dir="${4:-$(dirname "${BASH_SOURCE[0]}")}"
-  
+
   local prompt=$(build_prompt "$workspace" "$iteration")
   local fifo="$workspace/.ralph/.parser_fifo"
-  
+
+  # Set up interrupt handler
+  RALPH_FIFO="$fifo"
+  trap ralph_interrupt_handler INT TERM
+
   # Create named pipe for parser signals
   rm -f "$fifo"
   mkfifo "$fifo"
@@ -390,17 +438,17 @@ run_iteration() {
   
   # Change to workspace
   cd "$workspace"
-  
+
   # Start spinner to show we're alive
   spinner "$workspace" &
-  local spinner_pid=$!
-  
+  RALPH_SPINNER_PID=$!
+
   # Start parser in background, reading from claude CLI
   # Parser outputs to fifo, we read signals from fifo
   (
     eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
   ) &
-  local agent_pid=$!
+  RALPH_AGENT_PID=$!
   
   # Read signals from parser
   local signal=""
@@ -409,7 +457,7 @@ run_iteration() {
       "ROTATE")
         printf "\r\033[K" >&2  # Clear spinner line
         echo "🔄 Context rotation triggered - stopping agent..." >&2
-        kill $agent_pid 2>/dev/null || true
+        kill $RALPH_AGENT_PID 2>/dev/null || true
         signal="ROTATE"
         break
         ;;
@@ -432,18 +480,22 @@ run_iteration() {
         ;;
     esac
   done < "$fifo"
-  
+
   # Wait for agent to finish
-  wait $agent_pid 2>/dev/null || true
-  
+  wait $RALPH_AGENT_PID 2>/dev/null || true
+
   # Stop spinner and clear line
-  kill $spinner_pid 2>/dev/null || true
-  wait $spinner_pid 2>/dev/null || true
+  kill $RALPH_SPINNER_PID 2>/dev/null || true
+  wait $RALPH_SPINNER_PID 2>/dev/null || true
   printf "\r\033[K" >&2  # Clear spinner line
-  
-  # Cleanup
+
+  # Cleanup and reset trap
   rm -f "$fifo"
-  
+  RALPH_SPINNER_PID=""
+  RALPH_AGENT_PID=""
+  RALPH_FIFO=""
+  trap - INT TERM
+
   echo "$signal"
 }
 

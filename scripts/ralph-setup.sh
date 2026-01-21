@@ -21,6 +21,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source common functions
 source "$SCRIPT_DIR/ralph-common.sh"
 
+# Set up top-level interrupt handler (uses handler from ralph-common.sh)
+trap ralph_interrupt_handler INT TERM
+
 # =============================================================================
 # GUM DETECTION
 # =============================================================================
