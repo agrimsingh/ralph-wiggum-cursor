@@ -116,18 +116,6 @@ log_error() {
   echo "[$timestamp] $message" >> "$ralph_dir/errors.log"
 }
 
-# Log to progress.md (called by the loop, not the agent)
-log_progress() {
-  local workspace="$1"
-  local message="$2"
-  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  local progress_file="$workspace/.ralph/progress.md"
-  
-  echo "" >> "$progress_file"
-  echo "### $timestamp" >> "$progress_file"
-  echo "$message" >> "$progress_file"
-}
-
 # =============================================================================
 # INITIALIZATION
 # =============================================================================
@@ -138,20 +126,6 @@ init_ralph_dir() {
   local ralph_dir="$workspace/.ralph"
   
   mkdir -p "$ralph_dir"
-  
-  # Initialize progress.md if it doesn't exist
-  if [[ ! -f "$ralph_dir/progress.md" ]]; then
-    cat > "$ralph_dir/progress.md" << 'EOF'
-# Progress Log
-
-> Updated by the agent after significant work.
-
----
-
-## Session History
-
-EOF
-  fi
   
   # Initialize guardrails.md if it doesn't exist
   if [[ ! -f "$ralph_dir/guardrails.md" ]]; then
@@ -269,8 +243,7 @@ You are an autonomous development agent using the Ralph methodology.
 Before doing anything:
 1. Read \`RALPH_TASK.md\` - your task and completion criteria
 2. Read \`.ralph/guardrails.md\` - lessons from past failures (FOLLOW THESE)
-3. Read \`.ralph/progress.md\` - what's been accomplished
-4. Read \`.ralph/errors.log\` - recent failures to avoid
+3. Read \`.ralph/errors.log\` - recent failures to avoid
 
 ## Working Directory (Critical)
 
@@ -303,9 +276,8 @@ If you get rotated, the next agent picks up from your last commit. Your commits 
 3. **Mark completed criteria**: Edit RALPH_TASK.md and change \`[ ]\` to \`[x]\`
    - Example: \`- [ ] Implement parser\` becomes \`- [x] Implement parser\`
    - This is how progress is tracked - YOU MUST update the file
-4. Update \`.ralph/progress.md\` with what you accomplished
-5. When ALL criteria show \`[x]\`: output \`<ralph>COMPLETE</ralph>\`
-6. If stuck 3+ times on same issue: output \`<ralph>GUTTER</ralph>\`
+4. When ALL criteria show \`[x]\`: output \`<ralph>COMPLETE</ralph>\`
+5. If stuck 3+ times on same issue: output \`<ralph>GUTTER</ralph>\`
 
 ## Learning from Failures
 
@@ -326,8 +298,7 @@ When something fails:
 You may receive a warning that context is running low. When you see it:
 1. Finish your current file edit
 2. Commit and push your changes
-3. Update .ralph/progress.md with what you accomplished and what's next
-4. You will be rotated to a fresh agent that continues your work
+3. You will be rotated to a fresh agent that continues your work
 
 Begin by reading the state files.
 EOF
@@ -378,9 +349,6 @@ run_iteration() {
   echo "Model:     $MODEL" >&2
   echo "Monitor:   tail -f $workspace/.ralph/activity.log" >&2
   echo "" >&2
-  
-  # Log session start to progress.md
-  log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
   
   # Build cursor-agent command
   local cmd="cursor-agent -p --force --output-format stream-json --model $MODEL"
@@ -493,7 +461,6 @@ run_ralph_loop() {
     task_status=$(check_task_complete "$workspace")
     
     if [[ "$task_status" == "COMPLETE" ]]; then
-      log_progress "$workspace" "**Session $iteration ended** - ✅ TASK COMPLETE"
       echo ""
       echo "═══════════════════════════════════════════════════════════════════"
       echo "🎉 RALPH COMPLETE! All criteria satisfied."
@@ -522,7 +489,6 @@ run_ralph_loop() {
       "COMPLETE")
         # Agent signaled completion - verify with checkbox check
         if [[ "$task_status" == "COMPLETE" ]]; then
-          log_progress "$workspace" "**Session $iteration ended** - ✅ TASK COMPLETE (agent signaled)"
           echo ""
           echo "═══════════════════════════════════════════════════════════════════"
           echo "🎉 RALPH COMPLETE! Agent signaled completion and all criteria verified."
@@ -546,7 +512,6 @@ run_ralph_loop() {
           return 0
         else
           # Agent said complete but checkboxes say otherwise - continue
-          log_progress "$workspace" "**Session $iteration ended** - Agent signaled complete but criteria remain"
           echo ""
           echo "⚠️  Agent signaled completion but unchecked criteria remain."
           echo "   Continuing with next iteration..."
@@ -554,14 +519,12 @@ run_ralph_loop() {
         fi
         ;;
       "ROTATE")
-        log_progress "$workspace" "**Session $iteration ended** - 🔄 Context rotation (token limit reached)"
         echo ""
         echo "🔄 Rotating to fresh context..."
         iteration=$((iteration + 1))
         session_id=""
         ;;
       "GUTTER")
-        log_progress "$workspace" "**Session $iteration ended** - 🚨 GUTTER (agent stuck)"
         echo ""
         echo "🚨 Gutter detected. Check .ralph/errors.log for details."
         echo "   The agent may be stuck. Consider:"
@@ -574,7 +537,6 @@ run_ralph_loop() {
         # Agent finished naturally, check if more work needed
         if [[ "$task_status" == INCOMPLETE:* ]]; then
           local remaining_count=${task_status#INCOMPLETE:}
-          log_progress "$workspace" "**Session $iteration ended** - Agent finished naturally ($remaining_count criteria remaining)"
           echo ""
           echo "📋 Agent finished but $remaining_count criteria remaining."
           echo "   Starting next iteration..."
@@ -587,7 +549,6 @@ run_ralph_loop() {
     sleep 2
   done
   
-  log_progress "$workspace" "**Loop ended** - ⚠️ Max iterations ($MAX_ITERATIONS) reached"
   echo ""
   echo "⚠️  Max iterations ($MAX_ITERATIONS) reached."
   echo "   Task may not be complete. Check progress manually."

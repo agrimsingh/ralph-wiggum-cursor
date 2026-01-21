@@ -30,7 +30,7 @@ The process is a loop of local work, automated handoff, cloud-based work, and ma
 ### 3. Cloud Agent Work (on `ralph-iteration-N`)
 
 -   The Cloud Agent operates entirely on its dedicated iteration branch.
--   It reads the task definition (`RALPH_TASK.md`) and progress files (`.ralph/progress.md`) to understand the state of the project.
+-   It reads the task definition (`RALPH_TASK.md`) and state files (`.ralph/guardrails.md`, `.ralph/errors.log`) to understand the state of the project.
 -   It continues the task, committing its changes to the `ralph-iteration-N` branch.
 -   The agent works until it either completes the task, gets stuck (outputs `<ralph>GUTTER</ralph>`), or hits its own context limits.
 
