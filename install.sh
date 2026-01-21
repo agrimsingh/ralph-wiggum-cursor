@@ -23,8 +23,7 @@ fi
 # Navigate to git root if in a subdirectory
 GIT_ROOT="$(git rev-parse --show-toplevel)"
 if [[ "$PWD" != "$GIT_ROOT" ]]; then
-  echo "📂 Moving to git root: $GIT_ROOT"
-  cd "$GIT_ROOT"
+  echo "📂 Using git root: $GIT_ROOT"
   echo ""
 fi
 
@@ -254,14 +253,14 @@ fi
 # UPDATE .gitignore
 # =============================================================================
 
-if [[ -f ".gitignore" ]]; then
+if [[ -f "$GIT_ROOT/.gitignore" ]]; then
   if ! grep -q "ralph-config.json" .gitignore 2>/dev/null; then
-    echo "" >> .gitignore
-    echo "# Ralph config (may contain API key)" >> .gitignore
-    echo ".claude/ralph-config.json" >> .gitignore
+    echo "" >> $GIT_ROOT/.gitignore
+    echo "# Ralph config (may contain API key)" >> $GIT_ROOT/.gitignore
+    echo ".claude/ralph-config.json" >> $GIT_ROOT/.gitignore
   fi
 else
-  cat > .gitignore <<'EOF'
+  cat > $GIT_ROOT/.gitignore <<'EOF'
 # Ralph config (may contain API key)
 .claude/ralph-config.json
 EOF
