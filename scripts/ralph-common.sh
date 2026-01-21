@@ -15,8 +15,15 @@ ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
 # Iteration limits
 MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
 
-# Model selection
-DEFAULT_MODEL="opus"
+# CLI tool selection: "claude" or "cursor-agent"
+CLI_TOOL="${CLI_TOOL:-claude}"
+
+# Model selection (defaults differ by CLI tool)
+if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+  DEFAULT_MODEL="opus-4.5-thinking"
+else
+  DEFAULT_MODEL="opus"
+fi
 MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
 
 # Feature flags (set by caller)
@@ -439,12 +446,13 @@ run_iteration() {
   echo "═══════════════════════════════════════════════════════════════════" >&2
   echo "" >&2
   echo "Workspace: $workspace" >&2
+  echo "CLI tool:  $CLI_TOOL" >&2
   echo "Model:     $MODEL" >&2
   echo "Monitor:   tail -f $workspace/.ralph/activity.log" >&2
   echo "" >&2
-  
+
   # Log session start to progress.md
-  log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
+  log_progress "$workspace" "**Session $iteration started** (cli: $CLI_TOOL, model: $MODEL)"
   
   # Change to workspace
   cd "$workspace"
@@ -453,18 +461,32 @@ run_iteration() {
   spinner "$workspace" &
   RALPH_SPINNER_PID=$!
 
-  # Build claude CLI arguments
-  local -a claude_args=(-p --verbose --output-format stream-json --dangerously-skip-permissions --model "$MODEL")
-  if [[ -n "$session_id" ]]; then
-    echo "Resuming session: $session_id" >&2
-    claude_args+=(-r "$session_id")
+  # Build CLI arguments based on selected tool
+  if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+    # cursor-agent CLI
+    local -a cli_args=(-p --force --output-format stream-json --model "$MODEL")
+    if [[ -n "$session_id" ]]; then
+      echo "Resuming session: $session_id" >&2
+      cli_args+=(--resume="$session_id")
+    fi
+    # Start parser in background, reading from cursor-agent
+    # cursor-agent can take prompt as argument
+    (
+      cursor-agent "${cli_args[@]}" "$prompt" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    ) &
+  else
+    # claude CLI (default)
+    local -a cli_args=(-p --verbose --output-format stream-json --dangerously-skip-permissions --model "$MODEL")
+    if [[ -n "$session_id" ]]; then
+      echo "Resuming session: $session_id" >&2
+      cli_args+=(-r "$session_id")
+    fi
+    # Start parser in background, reading from claude CLI
+    # Pass prompt via stdin to avoid shell escaping issues
+    (
+      echo "$prompt" | claude "${cli_args[@]}" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    ) &
   fi
-
-  # Start parser in background, reading from claude CLI
-  # Pass prompt via stdin to avoid shell escaping issues
-  (
-    echo "$prompt" | claude "${claude_args[@]}" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
-  ) &
   RALPH_AGENT_PID=$!
   
   # Read signals from parser
@@ -687,13 +709,23 @@ check_prerequisites() {
     return 1
   fi
   
-  # Check for claude CLI
-  if ! command -v claude &> /dev/null; then
-    echo "❌ claude CLI not found"
-    echo ""
-    echo "Install via:"
-    echo "  npm install -g @anthropic-ai/claude-code"
-    return 1
+  # Check for the selected CLI tool
+  if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+    if ! command -v cursor-agent &> /dev/null; then
+      echo "❌ cursor-agent CLI not found"
+      echo ""
+      echo "Install via:"
+      echo "  curl https://cursor.com/install -fsS | bash"
+      return 1
+    fi
+  else
+    if ! command -v claude &> /dev/null; then
+      echo "❌ claude CLI not found"
+      echo ""
+      echo "Install via:"
+      echo "  npm install -g @anthropic-ai/claude-code"
+      return 1
+    fi
   fi
   
   # Check for git repo

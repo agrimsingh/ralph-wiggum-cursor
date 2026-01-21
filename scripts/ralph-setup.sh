@@ -11,7 +11,7 @@
 # Requirements:
 #   - RALPH_TASK.md in the project root
 #   - Git repository
-#   - claude CLI installed
+#   - One of: claude CLI or cursor-agent CLI installed
 #   - gum (optional, for enhanced UI): brew install gum
 
 set -euo pipefail
@@ -37,29 +37,75 @@ fi
 # GUM UI HELPERS
 # =============================================================================
 
-# Model options (Claude CLI model aliases)
-MODELS=(
+# CLI tool options
+CLI_TOOLS=(
+  "claude"
+  "cursor-agent"
+)
+
+# Model options per CLI tool
+CLAUDE_MODELS=(
   "opus"
   "sonnet"
   "haiku"
   "Custom..."
 )
 
+CURSOR_MODELS=(
+  "opus-4.5-thinking"
+  "sonnet-4.0"
+  "haiku-4.0"
+  "Custom..."
+)
+
+# Select CLI tool using gum or fallback
+select_cli_tool() {
+  if [[ "$HAS_GUM" == "true" ]]; then
+    gum choose --header "Select CLI tool:" "${CLI_TOOLS[@]}"
+  else
+    echo ""
+    echo "Select CLI tool:"
+    local i=1
+    for tool in "${CLI_TOOLS[@]}"; do
+      echo "  $i) $tool"
+      ((i++))
+    done
+    echo ""
+    read -p "Choice [1]: " choice
+    choice="${choice:-1}"
+
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#CLI_TOOLS[@]} ]]; then
+      echo "${CLI_TOOLS[$((choice-1))]}"
+    else
+      echo "${CLI_TOOLS[0]}"
+    fi
+  fi
+}
+
 # Select model using gum or fallback
+# Uses global CLI_TOOL to determine which model list to show
 select_model() {
+  # Select appropriate model list based on CLI tool
+  local -a models
+  if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+    models=("${CURSOR_MODELS[@]}")
+  else
+    models=("${CLAUDE_MODELS[@]}")
+  fi
+
   if [[ "$HAS_GUM" == "true" ]]; then
     local selected
-    selected=$(gum choose --header "Select model:" "${MODELS[@]}")
-    
+    selected=$(gum choose --header "Select model:" "${models[@]}")
+
     if [[ "$selected" == "Custom..." ]]; then
-      selected=$(gum input --placeholder "Enter model name" --value "$DEFAULT_MODEL")
+      selected=$(gum input --placeholder "Enter model name" --value "${models[0]}")
     fi
     echo "$selected"
   else
     echo ""
     echo "Select model:"
     local i=1
-    for m in "${MODELS[@]}"; do
+    for m in "${models[@]}"; do
       if [[ "$m" == "Custom..." ]]; then
         echo "  $i) Custom (enter manually)"
       else
@@ -70,15 +116,15 @@ select_model() {
     echo ""
     read -p "Choice [1]: " choice
     choice="${choice:-1}"
-    
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#MODELS[@]} ]]; then
-      local selected="${MODELS[$((choice-1))]}"
+
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#models[@]} ]]; then
+      local selected="${models[$((choice-1))]}"
       if [[ "$selected" == "Custom..." ]]; then
         read -p "Enter model name: " selected
       fi
       echo "$selected"
     else
-      echo "${MODELS[0]}"
+      echo "${models[0]}"
     fi
   fi
 }
@@ -239,8 +285,12 @@ main() {
     echo "Configure your Ralph session:"
   fi
   echo ""
-  
-  # 1. Select model
+
+  # 1. Select CLI tool
+  CLI_TOOL=$(select_cli_tool)
+  echo "✓ CLI tool: $CLI_TOOL"
+
+  # 2. Select model (options depend on CLI tool)
   MODEL=$(select_model)
   echo "✓ Model: $MODEL"
   
@@ -293,6 +343,7 @@ main() {
   
   echo "─────────────────────────────────────────────────────────────────"
   echo "Summary:"
+  echo "  • CLI tool:   $CLI_TOOL"
   echo "  • Model:      $MODEL"
   echo "  • Iterations: $MAX_ITERATIONS max"
   [[ -n "$USE_BRANCH" ]] && echo "  • Branch:     $USE_BRANCH"
@@ -311,6 +362,7 @@ main() {
   # ==========================================================================
   
   # Export settings for the loop
+  export CLI_TOOL
   export MODEL
   export MAX_ITERATIONS
   export USE_BRANCH
