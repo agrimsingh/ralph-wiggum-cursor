@@ -5,11 +5,22 @@
 # Tracks token usage, detects failures/gutter, writes to .ralph/ logs.
 #
 # Usage:
-#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
+#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace [model]
+#
+# Arguments:
+#   $1 - workspace: path to the workspace root
+#   $2 - model: (optional) model name for context window sizing (default: custom)
+#
+# Model-aware thresholds (80% of published context windows):
+#   - sonnet-4.5-thinking: 800k (1M context in MAX mode)
+#   - gemini-3-pro:        800k (1M context in MAX mode)
+#   - gpt-5.2-high:        217k (272k context in MAX mode)
+#   - opus-4.5-thinking:   160k (200k context)
+#   - custom/unknown:      80k  (100k conservative default)
 #
 # Outputs to stdout:
-#   - ROTATE when threshold hit (80k tokens)
-#   - WARN when approaching limit (70k tokens)
+#   - ROTATE when threshold hit
+#   - WARN when approaching limit
 #   - GUTTER when stuck pattern detected
 #   - COMPLETE when agent outputs <ralph>COMPLETE</ralph>
 #
@@ -20,14 +31,79 @@
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
+MODEL="${2:-custom}"
 RALPH_DIR="$WORKSPACE/.ralph"
 
 # Ensure .ralph directory exists
 mkdir -p "$RALPH_DIR"
 
-# Thresholds
-WARN_THRESHOLD=70000
-ROTATE_THRESHOLD=80000
+# =============================================================================
+# MODEL-AWARE TOKEN THRESHOLDS
+# =============================================================================
+# Thresholds are set to ~80% of published context window limits.
+# This leaves headroom for system prompts and safety margin.
+#
+# Published context windows (MAX mode where applicable):
+#   - sonnet-4.5-thinking: 1M    → 80% = 800,000
+#   - gemini-3-pro:        1M    → 80% = 800,000
+#   - gpt-5.2-high:        272k  → 80% = 217,600
+#   - opus-4.5-thinking:   200k  → 80% = 160,000
+#   - composer-1:          200k  → 80% = 160,000
+#   - custom/unknown:      100k  → 80% = 80,000
+# =============================================================================
+
+get_model_thresholds() {
+  local model="$1"
+  local warn rotate
+  
+  case "$model" in
+    *sonnet*4.5*thinking*|*sonnet*thinking*4.5*)
+      # Sonnet 4.5 thinking has 1M context (MAX mode)
+      rotate=800000
+      warn=700000
+      ;;
+    *gemini*3*pro*|*gemini-3-pro*)
+      # Gemini 3 Pro has 1M context (MAX mode)
+      rotate=800000
+      warn=700000
+      ;;
+    *gpt-5*|*gpt5*)
+      # GPT-5.x: 272k context (MAX mode)
+      rotate=217600
+      warn=190000
+      ;;
+    *opus*4.5*thinking*|*opus*thinking*4.5*|*opus-4.5*)
+      # Opus 4.5: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *composer*)
+      # Composer: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *sonnet*4*|*claude*sonnet*)
+      # Other Sonnet models: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *opus*|*claude*opus*)
+      # Other Opus models: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *)
+      # Custom/unknown models: conservative 100k → 80k threshold
+      rotate=80000
+      warn=70000
+      ;;
+  esac
+  
+  echo "$warn $rotate"
+}
+
+# Get thresholds for selected model
+read WARN_THRESHOLD ROTATE_THRESHOLD <<< $(get_model_thresholds "$MODEL")
 
 # Tracking state
 BYTES_READ=0
@@ -280,6 +356,7 @@ main() {
   echo "" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
   echo "Ralph Session Started: $(date)" >> "$RALPH_DIR/activity.log"
+  echo "Model: $MODEL | Token limit: $ROTATE_THRESHOLD (warn: $WARN_THRESHOLD)" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
   
   # Track last token log time

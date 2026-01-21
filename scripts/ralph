@@ -374,6 +374,7 @@ fi
 MODELS=(
   "opus-4.5-thinking"
   "sonnet-4.5-thinking"
+  "gemini-3-pro"
   "gpt-5.2-high"
   "composer-1"
   "Custom..."

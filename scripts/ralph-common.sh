@@ -10,7 +10,9 @@
 # CONFIGURATION (can be overridden before sourcing or via environment)
 # =============================================================================
 
-# Token thresholds
+# Token thresholds (fallback defaults - stream-parser.sh uses model-aware values)
+# These are used for health emoji calculations in ralph-common.sh
+# Actual thresholds are determined by model in stream-parser.sh
 WARN_THRESHOLD="${WARN_THRESHOLD:-70000}"
 ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
 
@@ -684,8 +686,9 @@ run_iteration() {
   
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
+  # Pass model to parser for model-aware token thresholds
   (
-    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" "$run_dir" > "$fifo"
+    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" "$run_dir" "$MODEL" > "$fifo"
   ) &
   local agent_pid=$!
   

@@ -5,15 +5,23 @@
 # Tracks token usage, detects failures/gutter, writes to per-run state directory.
 #
 # Usage:
-#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace /path/to/run_dir
+#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace /path/to/run_dir [model]
 #
 # Arguments:
 #   $1 - workspace: path to the workspace root
 #   $2 - run_dir: path to the per-run state directory (.ralph/runs/<runId>/)
+#   $3 - model: (optional) model name for context window sizing (default: custom)
+#
+# Model-aware thresholds (80% of published context windows):
+#   - sonnet-4.5-thinking: 800k (1M context in MAX mode)
+#   - gemini-3-pro:        800k (1M context in MAX mode)
+#   - gpt-5.2-high:        217k (272k context in MAX mode)
+#   - opus-4.5-thinking:   160k (200k context)
+#   - custom/unknown:      80k  (100k conservative default)
 #
 # Outputs to stdout:
-#   - ROTATE when threshold hit (80k tokens)
-#   - WARN when approaching limit (70k tokens)
+#   - ROTATE when threshold hit
+#   - WARN when approaching limit
 #   - GUTTER when stuck pattern detected
 #   - COMPLETE when agent outputs <ralph>COMPLETE</ralph>
 #
@@ -25,13 +33,78 @@ set -euo pipefail
 
 WORKSPACE="${1:-.}"
 RUN_DIR="${2:-$WORKSPACE/.ralph}"
+MODEL="${3:-custom}"
 
 # Ensure run directory exists
 mkdir -p "$RUN_DIR"
 
-# Thresholds
-WARN_THRESHOLD=70000
-ROTATE_THRESHOLD=80000
+# =============================================================================
+# MODEL-AWARE TOKEN THRESHOLDS
+# =============================================================================
+# Thresholds are set to ~80% of published context window limits.
+# This leaves headroom for system prompts and safety margin.
+#
+# Published context windows (MAX mode where applicable):
+#   - sonnet-4.5-thinking: 1M    → 80% = 800,000
+#   - gemini-3-pro:        1M    → 80% = 800,000
+#   - gpt-5.2-high:        272k  → 80% = 217,600
+#   - opus-4.5-thinking:   200k  → 80% = 160,000
+#   - composer-1:          200k  → 80% = 160,000
+#   - custom/unknown:      100k  → 80% = 80,000
+# =============================================================================
+
+get_model_thresholds() {
+  local model="$1"
+  local warn rotate
+  
+  case "$model" in
+    *sonnet*4.5*thinking*|*sonnet*thinking*4.5*)
+      # Sonnet 4.5 thinking has 1M context (MAX mode)
+      rotate=800000
+      warn=700000
+      ;;
+    *gemini*3*pro*|*gemini-3-pro*)
+      # Gemini 3 Pro has 1M context (MAX mode)
+      rotate=800000
+      warn=700000
+      ;;
+    *gpt-5*|*gpt5*)
+      # GPT-5.x: 272k context (MAX mode)
+      rotate=217600
+      warn=190000
+      ;;
+    *opus*4.5*thinking*|*opus*thinking*4.5*|*opus-4.5*)
+      # Opus 4.5: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *composer*)
+      # Composer: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *sonnet*4*|*claude*sonnet*)
+      # Other Sonnet models: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *opus*|*claude*opus*)
+      # Other Opus models: 200k context
+      rotate=160000
+      warn=140000
+      ;;
+    *)
+      # Custom/unknown models: conservative 100k → 80k threshold
+      rotate=80000
+      warn=70000
+      ;;
+  esac
+  
+  echo "$warn $rotate"
+}
+
+# Get thresholds for selected model
+read WARN_THRESHOLD ROTATE_THRESHOLD <<< $(get_model_thresholds "$MODEL")
 
 # Tracking state
 BYTES_READ=0
@@ -230,11 +303,15 @@ detect_git_commit() {
   # Try to parse subject from stdout first (typical format: "[branch sha] subject")
   if [[ "$stdout" =~ \[.*\]\ (.+) ]]; then
     subject="${BASH_REMATCH[1]}"
-  # Fallback: parse -m "..." argument from command
+  # Fallback: parse -m "..." argument from command (double quotes)
   elif [[ "$cmd" =~ -m[[:space:]]+\"([^\"]+)\" ]]; then
     subject="${BASH_REMATCH[1]}"
-  elif [[ "$cmd" =~ -m[[:space:]]+'([^']+)' ]]; then
-    subject="${BASH_REMATCH[1]}"
+  else
+    # Try single quotes - store pattern in variable to avoid quoting issues
+    local single_quote_pattern="-m[[:space:]]+'([^']+)'"
+    if [[ "$cmd" =~ $single_quote_pattern ]]; then
+      subject="${BASH_REMATCH[1]}"
+    fi
   fi
   
   # Log the commit if we found a subject
@@ -390,17 +467,20 @@ main() {
   local header_line=""
   header_line+="═══════════════════════════════════════════════════════════════"
   local start_line="Ralph Session Started: $(date)"
+  local model_line="Model: $MODEL | Token limit: $ROTATE_THRESHOLD (warn: $WARN_THRESHOLD)"
   
   # Write to activity.log
   echo "" >> "$RUN_DIR/activity.log"
   echo "$header_line" >> "$RUN_DIR/activity.log"
   echo "$start_line" >> "$RUN_DIR/activity.log"
+  echo "$model_line" >> "$RUN_DIR/activity.log"
   echo "$header_line" >> "$RUN_DIR/activity.log"
   
   # Also stream to stderr for inline display
   echo "" >&2
   echo "$header_line" >&2
   echo "$start_line" >&2
+  echo "$model_line" >&2
   echo "$header_line" >&2
   
   # Track last token log time
