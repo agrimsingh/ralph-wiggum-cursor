@@ -170,11 +170,19 @@ if [[ -f ".gitignore" ]]; then
     echo "# Ralph config (may contain API keys)" >> .gitignore
     echo ".claude/ralph-config.json" >> .gitignore
   fi
+  if ! grep -q "agent-output.log" .gitignore; then
+    echo "" >> .gitignore
+    echo "# Ralph agent output log (large, not useful in git)" >> .gitignore
+    echo ".ralph/agent-output.log" >> .gitignore
+  fi
   echo "✓ Updated .gitignore"
 else
   cat > .gitignore << 'EOF'
 # Ralph config (may contain API keys)
 .claude/ralph-config.json
+
+# Ralph agent output log (large, not useful in git)
+.ralph/agent-output.log
 EOF
   echo "✓ Created .gitignore"
 fi

@@ -263,10 +263,18 @@ if [[ -f "$GIT_ROOT/.gitignore" ]]; then
     echo "# Ralph config (may contain API key)" >> "$GIT_ROOT/.gitignore"
     echo ".claude/ralph-config.json" >> "$GIT_ROOT/.gitignore"
   fi
+  if ! grep -q "agent-output.log" "$GIT_ROOT/.gitignore" 2>/dev/null; then
+    echo "" >> "$GIT_ROOT/.gitignore"
+    echo "# Ralph agent output log (large, not useful in git)" >> "$GIT_ROOT/.gitignore"
+    echo ".ralph/agent-output.log" >> "$GIT_ROOT/.gitignore"
+  fi
 else
   cat > "$GIT_ROOT/.gitignore" <<'EOF'
 # Ralph config (may contain API key)
 .claude/ralph-config.json
+
+# Ralph agent output log (large, not useful in git)
+.ralph/agent-output.log
 EOF
 fi
 echo "✓ Updated .gitignore"
