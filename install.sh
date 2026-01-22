@@ -180,6 +180,14 @@ cat > .ralph/activity.log << 'EOF'
 
 EOF
 
+cat > .ralph/agent-output.log << 'EOF'
+# Agent Output Log
+
+> Raw JSON output from the agent CLI (claude or cursor-agent).
+> Use this for debugging and analysis.
+
+EOF
+
 echo "0" > .ralph/.iteration
 
 echo "✓ .ralph/ initialized"
@@ -284,6 +292,7 @@ echo "  📁 .ralph/                     - State files (tracked in git)"
 echo "     ├── guardrails.md           - Lessons learned"
 echo "     ├── progress.md             - Progress log"
 echo "     ├── activity.log            - Tool call log"
+echo "     ├── agent-output.log        - Raw agent JSON output"
 echo "     └── errors.log              - Failure log"
 echo ""
 echo "  📄 RALPH_TASK.md               - Your task definition (edit this!)"

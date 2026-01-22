@@ -137,6 +137,14 @@ cat > .ralph/activity.log << 'EOF'
 
 EOF
 
+cat > .ralph/agent-output.log << 'EOF'
+# Agent Output Log
+
+> Raw JSON output from the agent CLI (claude or cursor-agent).
+> Use this for debugging and analysis.
+
+EOF
+
 echo "0" > .ralph/.iteration
 
 # =============================================================================
@@ -181,11 +189,12 @@ echo "✅ Ralph initialized!"
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
 echo "Files created:"
-echo "  • RALPH_TASK.md        - Define your task here"
-echo "  • .ralph/guardrails.md - Lessons learned (agent updates this)"
-echo "  • .ralph/progress.md   - Progress log (agent updates this)"
-echo "  • .ralph/activity.log  - Tool call log (parser updates this)"
-echo "  • .ralph/errors.log    - Failure log (parser updates this)"
+echo "  • RALPH_TASK.md             - Define your task here"
+echo "  • .ralph/guardrails.md      - Lessons learned (agent updates this)"
+echo "  • .ralph/progress.md        - Progress log (agent updates this)"
+echo "  • .ralph/activity.log       - Tool call log (parser updates this)"
+echo "  • .ralph/agent-output.log   - Raw agent JSON output"
+echo "  • .ralph/errors.log         - Failure log (parser updates this)"
 echo ""
 echo "Next steps:"
 echo "  1. Edit RALPH_TASK.md to define your task and criteria"

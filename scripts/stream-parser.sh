@@ -16,6 +16,7 @@
 # Writes to .ralph/:
 #   - activity.log: all operations with context health
 #   - errors.log: failures and gutter detection
+#   - agent-output.log: raw JSON output from agent CLI
 
 set -euo pipefail
 
@@ -321,18 +322,30 @@ process_line() {
 
 # Main loop: read JSON lines from stdin
 main() {
+  local agent_output_log="$RALPH_DIR/agent-output.log"
+
   # Initialize activity log for this session
   echo "" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
   echo "Ralph Session Started: $(date)" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
-  
+
+  # Initialize agent output log for this session
+  echo "" >> "$agent_output_log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$agent_output_log"
+  echo "# Session Started: $(date)" >> "$agent_output_log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$agent_output_log"
+
   # Track last token log time
   local last_token_log=$(date +%s)
-  
+
   while IFS= read -r line; do
+    # Append raw line to agent output log
+    echo "$line" >> "$agent_output_log"
+
+    # Process the line for activity tracking
     process_line "$line"
-    
+
     # Log token status every 30 seconds
     local now=$(date +%s)
     if [[ $((now - last_token_log)) -ge 30 ]]; then
@@ -340,9 +353,13 @@ main() {
       last_token_log=$now
     fi
   done
-  
+
   # Final token status
   log_token_status
+
+  # Mark session end in agent output log
+  echo "" >> "$agent_output_log"
+  echo "# Session Ended: $(date)" >> "$agent_output_log"
 }
 
 main

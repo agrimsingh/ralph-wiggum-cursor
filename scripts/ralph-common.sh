@@ -270,6 +270,17 @@ EOF
 
 EOF
   fi
+
+  # Initialize agent-output.log if it doesn't exist
+  if [[ ! -f "$ralph_dir/agent-output.log" ]]; then
+    cat > "$ralph_dir/agent-output.log" << 'EOF'
+# Agent Output Log
+
+> Raw JSON output from the agent CLI (claude or cursor-agent).
+> Use this for debugging and analysis.
+
+EOF
+  fi
 }
 
 # =============================================================================
