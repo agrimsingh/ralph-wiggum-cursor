@@ -14,26 +14,23 @@ echo ""
 
 # Check if we're in a git repo
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
-  echo "⚠️  Warning: Not in a git repository."
-  echo "   Ralph works best with git for state persistence."
+  echo "❌ Not in a git repository."
+  echo "   Ralph requires git for state persistence."
   echo ""
-  read -p "Continue anyway? [y/N] " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    exit 1
-  fi
+  echo "   Run: git init"
+  exit 1
 fi
 
-# Check for cursor-agent CLI
-if ! command -v cursor-agent &> /dev/null; then
-  echo "⚠️  Warning: cursor-agent CLI not found."
-  echo "   Install via: curl https://cursor.com/install -fsS | bash"
+# Check for claude CLI
+if ! command -v claude &> /dev/null; then
+  echo "⚠️  Warning: claude CLI not found."
+  echo "   Install via: npm install -g @anthropic-ai/claude-code"
   echo ""
 fi
 
 # Create directories
 mkdir -p .ralph
-mkdir -p .cursor/ralph-scripts
+mkdir -p .claude/ralph-scripts
 
 # =============================================================================
 # CREATE RALPH_TASK.md IF NOT EXISTS
@@ -140,6 +137,14 @@ cat > .ralph/activity.log << 'EOF'
 
 EOF
 
+cat > .ralph/agent-output.log << 'EOF'
+# Agent Output Log
+
+> Raw JSON output from the agent CLI (claude or cursor-agent).
+> Use this for debugging and analysis.
+
+EOF
+
 echo "0" > .ralph/.iteration
 
 # =============================================================================
@@ -149,10 +154,10 @@ echo "0" > .ralph/.iteration
 echo "📦 Installing scripts..."
 
 # Copy scripts
-cp "$SKILL_DIR/scripts/"*.sh .cursor/ralph-scripts/ 2>/dev/null || true
-chmod +x .cursor/ralph-scripts/*.sh 2>/dev/null || true
+cp "$SKILL_DIR/scripts/"*.sh .claude/ralph-scripts/ 2>/dev/null || true
+chmod +x .claude/ralph-scripts/*.sh 2>/dev/null || true
 
-echo "✓ Scripts installed to .cursor/ralph-scripts/"
+echo "✓ Scripts installed to .claude/ralph-scripts/"
 
 # =============================================================================
 # UPDATE .gitignore
@@ -163,13 +168,23 @@ if [[ -f ".gitignore" ]]; then
   if ! grep -q "ralph-config.json" .gitignore; then
     echo "" >> .gitignore
     echo "# Ralph config (may contain API keys)" >> .gitignore
-    echo ".cursor/ralph-config.json" >> .gitignore
+    echo ".claude/ralph-config.json" >> .gitignore
+  fi
+  if ! grep -q "agent-output.log" .gitignore; then
+    echo "" >> .gitignore
+    echo "# Ralph logs (large, not useful in git)" >> .gitignore
+    echo ".ralph/agent-output.log" >> .gitignore
+    echo ".ralph/activity.log" >> .gitignore
   fi
   echo "✓ Updated .gitignore"
 else
   cat > .gitignore << 'EOF'
 # Ralph config (may contain API keys)
-.cursor/ralph-config.json
+.claude/ralph-config.json
+
+# Ralph logs (large, not useful in git)
+.ralph/agent-output.log
+.ralph/activity.log
 EOF
   echo "✓ Created .gitignore"
 fi
@@ -184,16 +199,17 @@ echo "✅ Ralph initialized!"
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
 echo "Files created:"
-echo "  • RALPH_TASK.md        - Define your task here"
-echo "  • .ralph/guardrails.md - Lessons learned (agent updates this)"
-echo "  • .ralph/progress.md   - Progress log (agent updates this)"
-echo "  • .ralph/activity.log  - Tool call log (parser updates this)"
-echo "  • .ralph/errors.log    - Failure log (parser updates this)"
+echo "  • RALPH_TASK.md             - Define your task here"
+echo "  • .ralph/guardrails.md      - Lessons learned (agent updates this)"
+echo "  • .ralph/progress.md        - Progress log (agent updates this)"
+echo "  • .ralph/activity.log       - Tool call log (parser updates this)"
+echo "  • .ralph/agent-output.log   - Raw agent JSON output"
+echo "  • .ralph/errors.log         - Failure log (parser updates this)"
 echo ""
 echo "Next steps:"
 echo "  1. Edit RALPH_TASK.md to define your task and criteria"
 echo "  2. Run: ./scripts/ralph-loop.sh"
-echo "     (or: .cursor/ralph-scripts/ralph-loop.sh)"
+echo "     (or: .claude/ralph-scripts/ralph-loop.sh)"
 echo ""
 echo "The agent will work autonomously, rotating context as needed."
 echo "Monitor progress: tail -f .ralph/activity.log"

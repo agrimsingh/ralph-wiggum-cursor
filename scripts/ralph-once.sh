@@ -5,9 +5,10 @@
 # Useful for testing your task definition before going AFK.
 #
 # Usage:
-#   ./ralph-once.sh                    # Run single iteration
-#   ./ralph-once.sh /path/to/project   # Run in specific project
-#   ./ralph-once.sh -m gpt-5.2-high    # Use specific model
+#   ./ralph-once.sh                         # Run single iteration
+#   ./ralph-once.sh /path/to/project        # Run in specific project
+#   ./ralph-once.sh -c cursor-agent         # Use cursor-agent CLI
+#   ./ralph-once.sh -m sonnet               # Use specific model
 #
 # After running:
 #   - Review the changes made
@@ -17,7 +18,7 @@
 # Requirements:
 #   - RALPH_TASK.md in the project root
 #   - Git repository
-#   - cursor-agent CLI installed
+#   - One of: claude CLI or cursor-agent CLI installed
 
 set -euo pipefail
 
@@ -25,6 +26,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source common functions
 source "$SCRIPT_DIR/ralph-common.sh"
+
+# Set up top-level interrupt handler (uses handler from ralph-common.sh)
+trap ralph_interrupt_handler INT TERM
 
 # =============================================================================
 # FLAG PARSING
@@ -41,13 +45,15 @@ Usage:
   ./ralph-once.sh [options] [workspace]
 
 Options:
-  -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -c, --cli TOOL         CLI tool to use: claude or cursor-agent (default: claude)
+  -m, --model MODEL      Model to use (default depends on CLI tool)
   -h, --help             Show this help
 
 Examples:
-  ./ralph-once.sh                        # Run one iteration
-  ./ralph-once.sh -m sonnet-4.5-thinking # Use Sonnet model
-  
+  ./ralph-once.sh                      # Run one iteration
+  ./ralph-once.sh -c cursor-agent      # Use cursor-agent CLI
+  ./ralph-once.sh -m sonnet            # Use Sonnet model
+
 After reviewing the results:
   - If satisfied: run ./ralph-setup.sh for full loop
   - If issues: fix them, update RALPH_TASK.md or guardrails, run again
@@ -59,6 +65,10 @@ WORKSPACE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -c|--cli)
+      CLI_TOOL="$2"
+      shift 2
+      ;;
     -m|--model)
       MODEL="$2"
       shift 2
@@ -85,7 +95,7 @@ done
 # =============================================================================
 
 main() {
-  # Resolve workspace
+  # Resolve workspace to absolute path
   if [[ -z "$WORKSPACE" ]]; then
     WORKSPACE="$(pwd)"
   elif [[ "$WORKSPACE" == "." ]]; then
@@ -93,9 +103,7 @@ main() {
   else
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
   fi
-  
-  local task_file="$WORKSPACE/RALPH_TASK.md"
-  
+
   # Show banner
   echo "═══════════════════════════════════════════════════════════════════"
   echo "🐛 Ralph Wiggum: Single Iteration (Human-in-the-Loop)"
@@ -106,7 +114,9 @@ main() {
   echo ""
   echo "═══════════════════════════════════════════════════════════════════"
   echo ""
-  
+
+  local task_file="$WORKSPACE/RALPH_TASK.md"
+
   # Check prerequisites
   if ! check_prerequisites "$WORKSPACE"; then
     exit 1
@@ -116,6 +126,7 @@ main() {
   init_ralph_dir "$WORKSPACE"
   
   echo "Workspace: $WORKSPACE"
+  echo "CLI tool:  $CLI_TOOL"
   echo "Model:     $MODEL"
   echo ""
   

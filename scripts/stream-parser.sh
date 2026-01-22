@@ -1,11 +1,11 @@
 #!/bin/bash
 # Ralph Wiggum: Stream Parser
 #
-# Parses cursor-agent stream-json output in real-time.
+# Parses Claude CLI stream-json output in real-time.
 # Tracks token usage, detects failures/gutter, writes to .ralph/ logs.
 #
 # Usage:
-#   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
+#   claude -p --verbose --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
 #
 # Outputs to stdout:
 #   - ROTATE when threshold hit (80k tokens)
@@ -16,6 +16,7 @@
 # Writes to .ralph/:
 #   - activity.log: all operations with context health
 #   - errors.log: failures and gutter detection
+#   - agent-output.log: raw JSON output from agent CLI
 
 set -euo pipefail
 
@@ -37,6 +38,11 @@ SHELL_OUTPUT_CHARS=0
 PROMPT_CHARS=0
 TOOL_CALLS=0
 WARN_SENT=0
+
+# Tool use/result tracking (Claude sends tool_use then tool_result separately)
+LAST_TOOL_NAME=""
+LAST_TOOL_INPUT=""
+LAST_TOOL_PATH=""
 
 # Estimate initial prompt size (Ralph prompt is ~2KB + file references)
 PROMPT_CHARS=3000
@@ -167,35 +173,42 @@ track_file_write() {
 # Process a single JSON line from stream
 process_line() {
   local line="$1"
-  
+
   # Skip empty lines
   [[ -z "$line" ]] && return
-  
+
   # Parse JSON type
   local type=$(echo "$line" | jq -r '.type // empty' 2>/dev/null) || return
   local subtype=$(echo "$line" | jq -r '.subtype // empty' 2>/dev/null) || true
-  
+
   case "$type" in
+    # Handle session init (Claude: "system" with subtype "init")
     "system")
       if [[ "$subtype" == "init" ]]; then
         local model=$(echo "$line" | jq -r '.model // "unknown"' 2>/dev/null) || model="unknown"
         log_activity "SESSION START: model=$model"
       fi
       ;;
-      
+
+    # Handle assistant messages (Claude: "assistant" with .message.content)
     "assistant")
-      # Track assistant message characters
+      # Track assistant message characters - try both formats
       local text=$(echo "$line" | jq -r '.message.content[0].text // empty' 2>/dev/null) || text=""
+      if [[ -z "$text" ]]; then
+        # Also try .content[].text for some message formats
+        text=$(echo "$line" | jq -r '.content[0].text // empty' 2>/dev/null) || text=""
+      fi
+
       if [[ -n "$text" ]]; then
         local chars=${#text}
         ASSISTANT_CHARS=$((ASSISTANT_CHARS + chars))
-        
+
         # Check for completion sigil
         if [[ "$text" == *"<ralph>COMPLETE</ralph>"* ]]; then
           log_activity "✅ Agent signaled COMPLETE"
           echo "COMPLETE" 2>/dev/null || true
         fi
-        
+
         # Check for gutter sigil
         if [[ "$text" == *"<ralph>GUTTER</ralph>"* ]]; then
           log_activity "🚨 Agent signaled GUTTER (stuck)"
@@ -203,69 +216,102 @@ process_line() {
         fi
       fi
       ;;
-      
-    "tool_call")
-      if [[ "$subtype" == "started" ]]; then
-        TOOL_CALLS=$((TOOL_CALLS + 1))
-        
-      elif [[ "$subtype" == "completed" ]]; then
-        # Handle read tool completion
-        if echo "$line" | jq -e '.tool_call.readToolCall.result.success' > /dev/null 2>&1; then
-          local path=$(echo "$line" | jq -r '.tool_call.readToolCall.args.path // "unknown"' 2>/dev/null) || path="unknown"
-          local lines=$(echo "$line" | jq -r '.tool_call.readToolCall.result.success.totalLines // 0' 2>/dev/null) || lines=0
-          
-          local content_size=$(echo "$line" | jq -r '.tool_call.readToolCall.result.success.contentSize // 0' 2>/dev/null) || content_size=0
-          local bytes
-          if [[ $content_size -gt 0 ]]; then
-            bytes=$content_size
-          else
-            bytes=$((lines * 100))  # ~100 chars/line for code
-          fi
+
+    # Handle tool invocation start (Claude CLI format)
+    "tool_use")
+      TOOL_CALLS=$((TOOL_CALLS + 1))
+
+      # Extract tool name and input for matching with tool_result
+      LAST_TOOL_NAME=$(echo "$line" | jq -r '.name // empty' 2>/dev/null) || LAST_TOOL_NAME=""
+
+      # Extract path from input based on tool type
+      case "$LAST_TOOL_NAME" in
+        "Read")
+          LAST_TOOL_PATH=$(echo "$line" | jq -r '.input.file_path // empty' 2>/dev/null) || LAST_TOOL_PATH=""
+          ;;
+        "Write")
+          LAST_TOOL_PATH=$(echo "$line" | jq -r '.input.file_path // empty' 2>/dev/null) || LAST_TOOL_PATH=""
+          ;;
+        "Edit")
+          LAST_TOOL_PATH=$(echo "$line" | jq -r '.input.file_path // empty' 2>/dev/null) || LAST_TOOL_PATH=""
+          ;;
+        "Bash")
+          LAST_TOOL_INPUT=$(echo "$line" | jq -r '.input.command // empty' 2>/dev/null) || LAST_TOOL_INPUT=""
+          ;;
+        "Glob"|"Grep")
+          LAST_TOOL_PATH=$(echo "$line" | jq -r '.input.pattern // empty' 2>/dev/null) || LAST_TOOL_PATH=""
+          ;;
+      esac
+      ;;
+
+    # Handle tool execution result (Claude CLI format)
+    "tool_result")
+      local output=$(echo "$line" | jq -r '.output // empty' 2>/dev/null) || output=""
+      local content=$(echo "$line" | jq -r '.content // empty' 2>/dev/null) || content=""
+      local result_text="${output}${content}"
+      local bytes=${#result_text}
+
+      case "$LAST_TOOL_NAME" in
+        "Read")
           BYTES_READ=$((BYTES_READ + bytes))
-          
           local kb=$(echo "scale=1; $bytes / 1024" | bc 2>/dev/null || echo "$((bytes / 1024))")
-          log_activity "READ $path ($lines lines, ~${kb}KB)"
-          
-        # Handle write tool completion
-        elif echo "$line" | jq -e '.tool_call.writeToolCall.result.success' > /dev/null 2>&1; then
-          local path=$(echo "$line" | jq -r '.tool_call.writeToolCall.args.path // "unknown"' 2>/dev/null) || path="unknown"
-          local lines=$(echo "$line" | jq -r '.tool_call.writeToolCall.result.success.linesCreated // 0' 2>/dev/null) || lines=0
-          local bytes=$(echo "$line" | jq -r '.tool_call.writeToolCall.result.success.fileSize // 0' 2>/dev/null) || bytes=0
+          log_activity "READ $LAST_TOOL_PATH (~${kb}KB)"
+          ;;
+        "Write")
           BYTES_WRITTEN=$((BYTES_WRITTEN + bytes))
-          
           local kb=$(echo "scale=1; $bytes / 1024" | bc 2>/dev/null || echo "$((bytes / 1024))")
-          log_activity "WRITE $path ($lines lines, ${kb}KB)"
-          
-          # Track for thrashing detection
-          track_file_write "$path"
-          
-        # Handle shell tool completion
-        elif echo "$line" | jq -e '.tool_call.shellToolCall.result' > /dev/null 2>&1; then
-          local cmd=$(echo "$line" | jq -r '.tool_call.shellToolCall.args.command // "unknown"' 2>/dev/null) || cmd="unknown"
-          local exit_code=$(echo "$line" | jq -r '.tool_call.shellToolCall.result.exitCode // 0' 2>/dev/null) || exit_code=0
-          
-          local stdout=$(echo "$line" | jq -r '.tool_call.shellToolCall.result.stdout // ""' 2>/dev/null) || stdout=""
-          local stderr=$(echo "$line" | jq -r '.tool_call.shellToolCall.result.stderr // ""' 2>/dev/null) || stderr=""
-          local output_chars=$((${#stdout} + ${#stderr}))
-          SHELL_OUTPUT_CHARS=$((SHELL_OUTPUT_CHARS + output_chars))
-          
+          log_activity "WRITE $LAST_TOOL_PATH (~${kb}KB)"
+          track_file_write "$LAST_TOOL_PATH"
+          ;;
+        "Edit")
+          # Edit is typically smaller changes
+          BYTES_WRITTEN=$((BYTES_WRITTEN + bytes))
+          log_activity "EDIT $LAST_TOOL_PATH"
+          track_file_write "$LAST_TOOL_PATH"
+          ;;
+        "Bash")
+          SHELL_OUTPUT_CHARS=$((SHELL_OUTPUT_CHARS + bytes))
+          # Try to extract exit code from output if present
+          local exit_code=0
+          if [[ "$result_text" == *"exit code"* ]] || [[ "$result_text" == *"Error"* ]] || [[ "$result_text" == *"error"* ]]; then
+            # Check for common error patterns
+            if [[ "$result_text" == *"exit code 1"* ]] || [[ "$result_text" == *"FAILED"* ]]; then
+              exit_code=1
+            fi
+          fi
+
           if [[ $exit_code -eq 0 ]]; then
-            if [[ $output_chars -gt 1024 ]]; then
-              log_activity "SHELL $cmd → exit 0 (${output_chars} chars output)"
+            if [[ $bytes -gt 1024 ]]; then
+              log_activity "BASH $LAST_TOOL_INPUT → ok (${bytes} chars)"
             else
-              log_activity "SHELL $cmd → exit 0"
+              log_activity "BASH $LAST_TOOL_INPUT → ok"
             fi
           else
-            log_activity "SHELL $cmd → exit $exit_code"
-            track_shell_failure "$cmd" "$exit_code"
+            log_activity "BASH $LAST_TOOL_INPUT → failed"
+            track_shell_failure "$LAST_TOOL_INPUT" "$exit_code"
           fi
-        fi
-        
-        # Check thresholds after each tool call
-        check_gutter
-      fi
+          ;;
+        "Glob"|"Grep")
+          BYTES_READ=$((BYTES_READ + bytes))
+          log_activity "SEARCH $LAST_TOOL_PATH (~${bytes} chars)"
+          ;;
+        *)
+          # Unknown tool, just track as read
+          BYTES_READ=$((BYTES_READ + bytes))
+          log_activity "TOOL $LAST_TOOL_NAME (~${bytes} chars)"
+          ;;
+      esac
+
+      # Reset tracking
+      LAST_TOOL_NAME=""
+      LAST_TOOL_INPUT=""
+      LAST_TOOL_PATH=""
+
+      # Check thresholds after each tool result
+      check_gutter
       ;;
-      
+
+    # Handle session end
     "result")
       local duration=$(echo "$line" | jq -r '.duration_ms // 0' 2>/dev/null) || duration=0
       local tokens=$(calc_tokens)
@@ -276,18 +322,30 @@ process_line() {
 
 # Main loop: read JSON lines from stdin
 main() {
+  local agent_output_log="$RALPH_DIR/agent-output.log"
+
   # Initialize activity log for this session
   echo "" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
   echo "Ralph Session Started: $(date)" >> "$RALPH_DIR/activity.log"
   echo "═══════════════════════════════════════════════════════════════" >> "$RALPH_DIR/activity.log"
-  
+
+  # Initialize agent output log for this session
+  echo "" >> "$agent_output_log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$agent_output_log"
+  echo "# Session Started: $(date)" >> "$agent_output_log"
+  echo "═══════════════════════════════════════════════════════════════" >> "$agent_output_log"
+
   # Track last token log time
   local last_token_log=$(date +%s)
-  
+
   while IFS= read -r line; do
+    # Append raw line to agent output log
+    echo "$line" >> "$agent_output_log"
+
+    # Process the line for activity tracking
     process_line "$line"
-    
+
     # Log token status every 30 seconds
     local now=$(date +%s)
     if [[ $((now - last_token_log)) -ge 30 ]]; then
@@ -295,9 +353,13 @@ main() {
       last_token_log=$now
     fi
   done
-  
+
   # Final token status
   log_token_status
+
+  # Mark session end in agent output log
+  echo "" >> "$agent_output_log"
+  echo "# Session Ended: $(date)" >> "$agent_output_log"
 }
 
 main

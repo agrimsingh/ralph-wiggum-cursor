@@ -15,14 +15,83 @@ ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
 # Iteration limits
 MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
 
-# Model selection
-DEFAULT_MODEL="opus-4.5-thinking"
+# CLI tool selection: "claude" or "cursor-agent"
+CLI_TOOL="${CLI_TOOL:-claude}"
+
+# Model selection (defaults differ by CLI tool)
+if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+  DEFAULT_MODEL="opus-4.5-thinking"
+else
+  DEFAULT_MODEL="opus"
+fi
 MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
 
 # Feature flags (set by caller)
 USE_BRANCH="${USE_BRANCH:-}"
 OPEN_PR="${OPEN_PR:-false}"
 SKIP_CONFIRM="${SKIP_CONFIRM:-false}"
+
+# =============================================================================
+# INTERRUPT HANDLING
+# =============================================================================
+
+# Track interrupt state for double Ctrl+C pattern
+RALPH_INTERRUPT_COUNT=0
+RALPH_LAST_INTERRUPT=0
+RALPH_SPINNER_PID=""
+RALPH_AGENT_PID=""
+RALPH_FIFO=""
+
+# Kill a process and all its children
+kill_tree() {
+  local pid="$1"
+  [[ -z "$pid" ]] && return
+  # Kill children first (recursively)
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child"
+  done
+  # Then kill the process itself
+  kill "$pid" 2>/dev/null || true
+}
+
+# Cleanup function to kill background processes
+ralph_cleanup() {
+  printf "\r\033[K" >&2  # Clear spinner line
+  # Kill process trees to ensure all children are terminated
+  [[ -n "$RALPH_SPINNER_PID" ]] && kill_tree $RALPH_SPINNER_PID
+  [[ -n "$RALPH_AGENT_PID" ]] && kill_tree $RALPH_AGENT_PID
+  [[ -n "$RALPH_FIFO" ]] && rm -f "$RALPH_FIFO"
+  # Reset state
+  RALPH_SPINNER_PID=""
+  RALPH_AGENT_PID=""
+  RALPH_FIFO=""
+}
+
+# Interrupt handler - requires double Ctrl+C to exit
+ralph_interrupt_handler() {
+  local now=$(date +%s)
+  local elapsed=$((now - RALPH_LAST_INTERRUPT))
+
+  if [[ $elapsed -le 2 ]]; then
+    # Second Ctrl+C within 2 seconds - exit
+    printf "\r\033[K" >&2
+    echo "" >&2
+    echo "🛑 Interrupted. Cleaning up..." >&2
+    ralph_cleanup
+    exit 130
+  else
+    # First Ctrl+C - warn user
+    printf "\r\033[K" >&2
+    echo "" >&2
+    echo "⚠️  Press Ctrl+C again within 2 seconds to stop Ralph" >&2
+    RALPH_LAST_INTERRUPT=$now
+  fi
+}
+
+# Set up EXIT trap to ensure cleanup on any exit
+trap ralph_cleanup EXIT
 
 # =============================================================================
 # BASIC HELPERS
@@ -201,6 +270,17 @@ EOF
 
 EOF
   fi
+
+  # Initialize agent-output.log if it doesn't exist
+  if [[ ! -f "$ralph_dir/agent-output.log" ]]; then
+    cat > "$ralph_dir/agent-output.log" << 'EOF'
+# Agent Output Log
+
+> Raw JSON output from the agent CLI (claude or cursor-agent).
+> Use this for debugging and analysis.
+
+EOF
+  fi
 }
 
 # =============================================================================
@@ -358,10 +438,14 @@ run_iteration() {
   local iteration="$2"
   local session_id="${3:-}"
   local script_dir="${4:-$(dirname "${BASH_SOURCE[0]}")}"
-  
+
   local prompt=$(build_prompt "$workspace" "$iteration")
   local fifo="$workspace/.ralph/.parser_fifo"
-  
+
+  # Set up interrupt handler
+  RALPH_FIFO="$fifo"
+  trap ralph_interrupt_handler INT TERM
+
   # Create named pipe for parser signals
   rm -f "$fifo"
   mkfifo "$fifo"
@@ -373,34 +457,48 @@ run_iteration() {
   echo "═══════════════════════════════════════════════════════════════════" >&2
   echo "" >&2
   echo "Workspace: $workspace" >&2
+  echo "CLI tool:  $CLI_TOOL" >&2
   echo "Model:     $MODEL" >&2
   echo "Monitor:   tail -f $workspace/.ralph/activity.log" >&2
   echo "" >&2
-  
+
   # Log session start to progress.md
-  log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
-  
-  # Build cursor-agent command
-  local cmd="cursor-agent -p --force --output-format stream-json --model $MODEL"
-  
-  if [[ -n "$session_id" ]]; then
-    echo "Resuming session: $session_id" >&2
-    cmd="$cmd --resume=\"$session_id\""
-  fi
+  log_progress "$workspace" "**Session $iteration started** (cli: $CLI_TOOL, model: $MODEL)"
   
   # Change to workspace
   cd "$workspace"
-  
+
   # Start spinner to show we're alive
   spinner "$workspace" &
-  local spinner_pid=$!
-  
-  # Start parser in background, reading from cursor-agent
-  # Parser outputs to fifo, we read signals from fifo
-  (
-    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
-  ) &
-  local agent_pid=$!
+  RALPH_SPINNER_PID=$!
+
+  # Build CLI arguments based on selected tool
+  if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+    # cursor-agent CLI
+    local -a cli_args=(-p --force --output-format stream-json --model "$MODEL")
+    if [[ -n "$session_id" ]]; then
+      echo "Resuming session: $session_id" >&2
+      cli_args+=(--resume="$session_id")
+    fi
+    # Start parser in background, reading from cursor-agent
+    # cursor-agent can take prompt as argument
+    (
+      cursor-agent "${cli_args[@]}" "$prompt" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    ) &
+  else
+    # claude CLI (default)
+    local -a cli_args=(-p --verbose --output-format stream-json --dangerously-skip-permissions --model "$MODEL")
+    if [[ -n "$session_id" ]]; then
+      echo "Resuming session: $session_id" >&2
+      cli_args+=(-r "$session_id")
+    fi
+    # Start parser in background, reading from claude CLI
+    # Pass prompt via stdin to avoid shell escaping issues
+    (
+      echo "$prompt" | claude "${cli_args[@]}" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    ) &
+  fi
+  RALPH_AGENT_PID=$!
   
   # Read signals from parser
   local signal=""
@@ -409,7 +507,7 @@ run_iteration() {
       "ROTATE")
         printf "\r\033[K" >&2  # Clear spinner line
         echo "🔄 Context rotation triggered - stopping agent..." >&2
-        kill $agent_pid 2>/dev/null || true
+        kill $RALPH_AGENT_PID 2>/dev/null || true
         signal="ROTATE"
         break
         ;;
@@ -432,18 +530,22 @@ run_iteration() {
         ;;
     esac
   done < "$fifo"
-  
+
   # Wait for agent to finish
-  wait $agent_pid 2>/dev/null || true
-  
+  wait $RALPH_AGENT_PID 2>/dev/null || true
+
   # Stop spinner and clear line
-  kill $spinner_pid 2>/dev/null || true
-  wait $spinner_pid 2>/dev/null || true
+  kill $RALPH_SPINNER_PID 2>/dev/null || true
+  wait $RALPH_SPINNER_PID 2>/dev/null || true
   printf "\r\033[K" >&2  # Clear spinner line
-  
-  # Cleanup
+
+  # Cleanup and reset trap
   rm -f "$fifo"
-  
+  RALPH_SPINNER_PID=""
+  RALPH_AGENT_PID=""
+  RALPH_FIFO=""
+  trap - INT TERM
+
   echo "$signal"
 }
 
@@ -460,11 +562,11 @@ run_ralph_loop() {
   
   # Commit any uncommitted work first
   cd "$workspace"
-  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    echo "📦 Committing uncommitted changes..."
-    git add -A
-    git commit -m "ralph: initial commit before loop" || true
-  fi
+  #if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  #  echo "📦 Committing uncommitted changes..."
+  #  git add -A
+  #  git commit -m "ralph: initial commit before loop" || true
+  #fi
   
   # Create branch if requested
   if [[ -n "$USE_BRANCH" ]]; then
@@ -618,13 +720,23 @@ check_prerequisites() {
     return 1
   fi
   
-  # Check for cursor-agent CLI
-  if ! command -v cursor-agent &> /dev/null; then
-    echo "❌ cursor-agent CLI not found"
-    echo ""
-    echo "Install via:"
-    echo "  curl https://cursor.com/install -fsS | bash"
-    return 1
+  # Check for the selected CLI tool
+  if [[ "$CLI_TOOL" == "cursor-agent" ]]; then
+    if ! command -v cursor-agent &> /dev/null; then
+      echo "❌ cursor-agent CLI not found"
+      echo ""
+      echo "Install via:"
+      echo "  curl https://cursor.com/install -fsS | bash"
+      return 1
+    fi
+  else
+    if ! command -v claude &> /dev/null; then
+      echo "❌ claude CLI not found"
+      echo ""
+      echo "Install via:"
+      echo "  npm install -g @anthropic-ai/claude-code"
+      return 1
+    fi
   fi
   
   # Check for git repo

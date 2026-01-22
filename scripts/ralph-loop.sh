@@ -1,21 +1,23 @@
 #!/bin/bash
 # Ralph Wiggum: The Loop (CLI Mode)
 #
-# Runs cursor-agent locally with stream-json parsing for accurate token tracking.
-# Handles context rotation via --resume when thresholds are hit.
+# Runs the selected CLI (claude or cursor-agent) with stream-json parsing for
+# accurate token tracking. Handles context rotation via resume when thresholds are hit.
 #
 # This script is for power users and scripting. For interactive use, see ralph-setup.sh.
 #
 # Usage:
 #   ./ralph-loop.sh                              # Start from current directory
 #   ./ralph-loop.sh /path/to/project             # Start from specific project
-#   ./ralph-loop.sh -n 50 -m gpt-5.2-high        # Custom iterations and model
+#   ./ralph-loop.sh -c cursor-agent              # Use cursor-agent CLI
+#   ./ralph-loop.sh -n 50 -m opus                # Custom iterations and model
 #   ./ralph-loop.sh --branch feature/foo --pr   # Create branch and PR
 #   ./ralph-loop.sh -y                           # Skip confirmation (for scripting)
 #
 # Flags:
+#   -c, --cli TOOL         CLI tool: claude or cursor-agent (default: claude)
 #   -n, --iterations N     Max iterations (default: 20)
-#   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+#   -m, --model MODEL      Model to use (default depends on CLI tool)
 #   --branch NAME          Create and work on a new branch
 #   --pr                   Open PR when complete (requires --branch)
 #   -y, --yes              Skip confirmation prompt
@@ -24,7 +26,7 @@
 # Requirements:
 #   - RALPH_TASK.md in the project root
 #   - Git repository
-#   - cursor-agent CLI installed
+#   - One of: claude CLI or cursor-agent CLI installed
 
 set -euo pipefail
 
@@ -32,6 +34,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source common functions
 source "$SCRIPT_DIR/ralph-common.sh"
+
+# Set up top-level interrupt handler (uses handler from ralph-common.sh)
+trap ralph_interrupt_handler INT TERM
 
 # =============================================================================
 # FLAG PARSING
@@ -45,8 +50,9 @@ Usage:
   ./ralph-loop.sh [options] [workspace]
 
 Options:
+  -c, --cli TOOL         CLI tool to use: claude or cursor-agent (default: claude)
   -n, --iterations N     Max iterations (default: 20)
-  -m, --model MODEL      Model to use (default: opus-4.5-thinking)
+  -m, --model MODEL      Model to use (default depends on CLI tool)
   --branch NAME          Create and work on a new branch
   --pr                   Open PR when complete (requires --branch)
   -y, --yes              Skip confirmation prompt
@@ -54,11 +60,13 @@ Options:
 
 Examples:
   ./ralph-loop.sh                                    # Interactive mode
+  ./ralph-loop.sh -c cursor-agent                    # Use cursor-agent CLI
   ./ralph-loop.sh -n 50                              # 50 iterations max
-  ./ralph-loop.sh -m gpt-5.2-high                    # Use GPT model
+  ./ralph-loop.sh -m sonnet                          # Use Sonnet model
   ./ralph-loop.sh --branch feature/api --pr -y      # Scripted PR workflow
-  
+
 Environment:
+  CLI_TOOL               Override CLI tool (same as -c flag)
   RALPH_MODEL            Override default model (same as -m flag)
 
 For interactive setup with a beautiful UI, use ralph-setup.sh instead.
@@ -70,6 +78,10 @@ WORKSPACE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -c|--cli)
+      CLI_TOOL="$2"
+      shift 2
+      ;;
     -n|--iterations)
       MAX_ITERATIONS="$2"
       shift 2
@@ -112,7 +124,7 @@ done
 # =============================================================================
 
 main() {
-  # Resolve workspace
+  # Resolve workspace to absolute path
   if [[ -z "$WORKSPACE" ]]; then
     WORKSPACE="$(pwd)"
   elif [[ "$WORKSPACE" == "." ]]; then
@@ -120,12 +132,12 @@ main() {
   else
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
   fi
-  
-  local task_file="$WORKSPACE/RALPH_TASK.md"
-  
+
   # Show banner
   show_banner
-  
+
+  local task_file="$WORKSPACE/RALPH_TASK.md"
+
   # Check prerequisites
   if ! check_prerequisites "$WORKSPACE"; then
     exit 1
@@ -160,6 +172,7 @@ main() {
   remaining=$((total_criteria - done_criteria))
   
   echo "Progress: $done_criteria / $total_criteria criteria complete ($remaining remaining)"
+  echo "CLI tool: $CLI_TOOL"
   echo "Model:    $MODEL"
   echo "Max iter: $MAX_ITERATIONS"
   [[ -n "$USE_BRANCH" ]] && echo "Branch:   $USE_BRANCH"
@@ -173,7 +186,7 @@ main() {
   
   # Confirm before starting (unless -y flag)
   if [[ "$SKIP_CONFIRM" != "true" ]]; then
-    echo "This will run cursor-agent locally to work on this task."
+    echo "This will run claude CLI locally to work on this task."
     echo "The agent will be rotated when context fills up (~80k tokens)."
     echo ""
     echo "Tip: Use ralph-setup.sh for interactive model/option selection."
