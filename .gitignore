@@ -1,0 +1,6 @@
+# Ralph state directories (generated at runtime)
+.ralph/
+.ralph-worktrees/
+
+# Task cache
+.ralph-task-cache.yaml
