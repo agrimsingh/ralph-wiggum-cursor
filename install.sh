@@ -92,7 +92,10 @@ SCRIPTS=(
   "ralph-setup.sh"
   "ralph-loop.sh"
   "ralph-once.sh"
+  "ralph-parallel.sh"
   "stream-parser.sh"
+  "task-parser.sh"
+  "ralph-retry.sh"
   "init-ralph.sh"
 )
 

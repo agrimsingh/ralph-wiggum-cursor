@@ -226,8 +226,8 @@ cat .ralph/errors.log
 Options:
   -n, --iterations N     Max iterations (default: 20)
   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
-  --branch NAME          Create and work on a new branch
-  --pr                   Open PR when complete (requires --branch)
+  --branch NAME          Sequential: create/work on branch; Parallel: integration branch name
+  --pr                   Sequential: open PR (requires --branch); Parallel: open ONE integration PR (branch optional)
   --parallel             Run tasks in parallel with worktrees
   --max-parallel N       Max parallel agents (default: 3)
   --no-merge             Skip auto-merge in parallel mode
@@ -246,8 +246,14 @@ Options:
 # Run 4 agents in parallel
 ./ralph-loop.sh --parallel --max-parallel 4
 
-# Parallel with branches (no auto-merge)
+# Parallel: keep branches separate
 ./ralph-loop.sh --parallel --no-merge
+
+# Parallel: merge into an integration branch + open ONE PR
+./ralph-loop.sh --parallel --max-parallel 5 --branch feature/multi-task --pr
+
+# Parallel: open ONE PR using an auto-named integration branch
+./ralph-loop.sh --parallel --max-parallel 5 --pr
 ```
 
 ## Parallel Execution
@@ -274,11 +280,23 @@ Ralph can run multiple agents concurrently, each in an isolated git worktree.
 # Keep branches separate (no auto-merge)
 ./ralph-loop.sh --parallel --no-merge
 
-# Combine with branch workflow
+# Merge into an integration branch (no PR)
 ./ralph-loop.sh --parallel --max-parallel 5 --branch feature/multi-task
+
+# Merge into an integration branch and open ONE PR
+./ralph-loop.sh --parallel --max-parallel 5 --branch feature/multi-task --pr
+
+# Open ONE PR using an auto-named integration branch
+./ralph-loop.sh --parallel --max-parallel 5 --pr
 ```
 
 > **Note:** There's no hard limit on `--max-parallel`. The practical limit depends on your machine's resources and API rate limits.
+
+### Integration branch + single PR
+
+Parallel `--pr` creates **one integration branch** (either your `--branch NAME` or an auto-named `ralph/parallel-<run_id>`), merges all successful agent branches into it, then opens **one PR** back to the base branch.
+
+This avoids “one PR per task” spam while keeping agents isolated.
 
 ### How Parallel Mode Works
 
@@ -319,6 +337,7 @@ Ralph can run multiple agents concurrently, each in an isolated git worktree.
 - Branches auto-merge after completion (or keep separate with `--no-merge`)
 - Conflict detection and reporting
 - Tasks are processed in batches (e.g., 5 agents = 5 tasks per batch)
+- In parallel mode, agents do **not** update `.ralph/progress.md` (they write per-agent reports instead)
 
 **When to use parallel mode:**
 - Multiple independent tasks that don't conflict
@@ -334,13 +353,29 @@ Ralph can run multiple agents concurrently, each in an isolated git worktree.
 ```
 project/
 ├── .ralph-worktrees/           # Temporary worktrees (auto-cleaned)
-│   ├── agent-1-abc123/         # Agent 1's isolated copy
-│   ├── agent-2-def456/         # Agent 2's isolated copy
-│   └── agent-3-ghi789/         # Agent 3's isolated copy
+│   ├── <run_id>-job1/          # Agent worktree (isolated)
+│   ├── <run_id>-job2/          # Agent worktree (isolated)
+│   └── <run_id>-job3/          # Agent worktree (isolated)
 └── (original project files)
 ```
 
 Worktrees are automatically cleaned up after agents complete. Failed agents preserve their worktree for manual inspection.
+
+### Parallel logs & per-agent reports
+
+Each parallel run creates a run directory:
+
+```
+.ralph/parallel/<run_id>/
+├── manifest.tsv                # job_id -> task_id -> branch -> status -> log
+└── jobN.log                    # full cursor-agent output for that job
+```
+
+Agents are instructed to write a committed per-agent report (to avoid `.ralph/progress.md` merge conflicts):
+
+```
+.ralph/parallel/<run_id>/agent-jobN.md
+```
 
 ## How It Works
 

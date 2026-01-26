@@ -302,7 +302,8 @@ main() {
   done <<< "$selected_options"
   
   # Validate: PR requires branch
-  if [[ "$OPEN_PR" == "true" ]] && [[ -z "$USE_BRANCH" ]]; then
+  # (Sequential mode only) In parallel mode, integration branch is optional.
+  if [[ "$OPEN_PR" == "true" ]] && [[ "$parallel_mode" != "true" ]] && [[ -z "$USE_BRANCH" ]]; then
     echo ""
     echo "⚠️  Opening PR requires a branch. Please specify a branch name:"
     USE_BRANCH=$(get_branch_name)
@@ -438,8 +439,13 @@ main() {
     # Export settings for parallel execution
     export MODEL
     export SKIP_MERGE=false
-    
-    run_parallel_tasks "$workspace" "$max_parallel" "$USE_BRANCH"
+    export CREATE_PR="$OPEN_PR"
+
+    local base_branch
+    base_branch="$(git -C "$workspace" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
+
+    # Args: workspace, max_parallel, base_branch, integration_branch(optional)
+    run_parallel_tasks "$workspace" "$max_parallel" "$base_branch" "$USE_BRANCH"
     exit $?
   else
     # Run full sequential loop

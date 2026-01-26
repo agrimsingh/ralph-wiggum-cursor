@@ -16,8 +16,8 @@
 # Flags:
 #   -n, --iterations N     Max iterations (default: 20)
 #   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
-#   --branch NAME          Create and work on a new branch
-#   --pr                   Open PR when complete (requires --branch)
+#   --branch NAME          Sequential: create/work on branch; Parallel: integration branch name
+#   --pr                   Sequential: open PR (requires --branch); Parallel: open ONE integration PR (branch optional)
 #   --parallel             Run tasks in parallel with worktrees
 #   --max-parallel N       Max parallel agents (default: 3)
 #   --no-merge             Skip auto-merge in parallel mode
@@ -56,8 +56,8 @@ Usage:
 Options:
   -n, --iterations N     Max iterations (default: 20)
   -m, --model MODEL      Model to use (default: opus-4.5-thinking)
-  --branch NAME          Create and work on a new branch
-  --pr                   Open PR when complete (requires --branch)
+  --branch NAME          Sequential: create/work on branch; Parallel: integration branch name
+  --pr                   Sequential: open PR (requires --branch); Parallel: open ONE integration PR (branch optional)
   --parallel             Run tasks in parallel with worktrees
   --max-parallel N       Max parallel agents (default: 3)
   --no-merge             Skip auto-merge in parallel mode
@@ -162,9 +162,9 @@ main() {
     exit 1
   fi
   
-  # Validate: PR requires branch
-  if [[ "$OPEN_PR" == "true" ]] && [[ -z "$USE_BRANCH" ]]; then
-    echo "❌ --pr requires --branch"
+  # Validate: PR requires branch (sequential mode only)
+  if [[ "$PARALLEL_MODE" != "true" ]] && [[ "$OPEN_PR" == "true" ]] && [[ -z "$USE_BRANCH" ]]; then
+    echo "❌ --pr requires --branch (sequential mode)"
     echo "   Example: ./ralph-loop.sh --branch feature/foo --pr"
     exit 1
   fi
@@ -232,8 +232,15 @@ main() {
     # Export settings for parallel execution
     export MODEL
     export SKIP_MERGE
-    
-    run_parallel_tasks "$WORKSPACE" "$MAX_PARALLEL" "$USE_BRANCH"
+
+    # Parallel PR behavior: one integration branch + one PR
+    export CREATE_PR="$OPEN_PR"
+
+    local base_branch
+    base_branch="$(git -C "$WORKSPACE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
+
+    # Args: workspace, max_parallel, base_branch, integration_branch(optional)
+    run_parallel_tasks "$WORKSPACE" "$MAX_PARALLEL" "$base_branch" "$USE_BRANCH"
     exit $?
   else
     # Run the sequential loop
