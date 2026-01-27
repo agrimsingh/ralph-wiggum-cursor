@@ -45,7 +45,7 @@ if ! command -v gum &> /dev/null; then
     if [[ "$OSTYPE" == "darwin"* ]]; then
       if command -v brew &> /dev/null; then
         echo "   Installing via Homebrew..."
-        brew install gum
+        brew install gum < /dev/null
       else
         echo "   ⚠️  Homebrew not found. Install manually: brew install gum"
       fi
