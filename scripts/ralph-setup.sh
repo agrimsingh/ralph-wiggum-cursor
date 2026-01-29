@@ -42,6 +42,7 @@ fi
 
 # Model options
 MODELS=(
+  "auto"
   "opus-4.5-thinking"
   "sonnet-4.5-thinking"
   "gpt-5.2-high"
