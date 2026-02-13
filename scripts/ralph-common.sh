@@ -23,16 +23,81 @@ fi
 # CONFIGURATION (can be overridden before sourcing)
 # =============================================================================
 
-# Token thresholds
-WARN_THRESHOLD="${WARN_THRESHOLD:-70000}"
-ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
-
-# Iteration limits
-MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
-
 # Model selection
-DEFAULT_MODEL="opus-4.5-thinking"
-MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
+DEFAULT_MODEL="${DEFAULT_MODEL:-opus-4.5-thinking}"
+
+# Resolve runtime config with consistent precedence:
+# explicit shell vars > env-backed vars > defaults
+resolve_ralph_runtime_config() {
+  WARN_THRESHOLD="${WARN_THRESHOLD:-70000}"
+  ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
+  MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
+  APPROVE_MCPS="${APPROVE_MCPS:-${RALPH_APPROVE_MCPS:-true}}"
+
+  # RALPH_MODEL acts as the env-backed default for MODEL.
+  MODEL="${MODEL:-${RALPH_MODEL:-$DEFAULT_MODEL}}"
+}
+
+# Apply config resolution immediately when sourced.
+resolve_ralph_runtime_config
+
+# Validate model strings before building cursor-agent commands.
+# Rules:
+# - non-empty
+# - single line
+# - no whitespace
+# - no obvious menu/prompt text
+# - conservative character set for CLI model ids
+model_value_invalid_reason() {
+  local model="${1:-}"
+
+  if [[ -z "$model" ]]; then
+    echo "model is empty"
+    return 0
+  fi
+
+  if [[ "$model" == *$'\n'* ]] || [[ "$model" == *$'\r'* ]]; then
+    echo "model contains newline characters"
+    return 0
+  fi
+
+  if [[ "$model" =~ [[:space:]] ]]; then
+    echo "model contains whitespace"
+    return 0
+  fi
+
+  if [[ "$model" == *"Select model"* ]] || [[ "$model" == *"Keep current"* ]] || [[ "$model" == [0-9]")"* ]]; then
+    echo "model looks like interactive menu text"
+    return 0
+  fi
+
+  if [[ ! "$model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]; then
+    echo "model contains unsupported characters"
+    return 0
+  fi
+
+  return 1
+}
+
+is_valid_model_value() {
+  ! model_value_invalid_reason "$1" >/dev/null
+}
+
+is_retryable_runtime_error() {
+  local error_msg="$1"
+  local lower_msg
+  lower_msg=$(echo "$error_msg" | tr '[:upper:]' '[:lower:]')
+
+  if [[ "$lower_msg" =~ (rate[[:space:]]*limit|rate_limit|rate-limit) ]] || \
+     [[ "$lower_msg" =~ (quota[[:space:]]*exceeded|quota[[:space:]]*limit|hit[[:space:]]*your[[:space:]]*limit) ]] || \
+     [[ "$lower_msg" =~ (too[[:space:]]*many[[:space:]]*requests|429|http[[:space:]]*429) ]] || \
+     [[ "$lower_msg" =~ (timeout|timed[[:space:]]*out|network[[:space:]]*error|connection[[:space:]]*(refused|reset|closed|failed)|econnreset|etimedout|enotfound) ]] || \
+     [[ "$lower_msg" =~ (service[[:space:]]*unavailable|503|bad[[:space:]]*gateway|502|gateway[[:space:]]*timeout|504|overloaded|server[[:space:]]*busy|try[[:space:]]*again) ]]; then
+    return 0
+  fi
+
+  return 1
+}
 
 # Feature flags (set by caller)
 USE_BRANCH="${USE_BRANCH:-}"
@@ -472,12 +537,34 @@ spinner() {
   done
 }
 
+# Recursively stop a process and its children.
+stop_process_tree() {
+  local pid="${1:-}"
+  if [[ -z "$pid" ]] || [[ "$pid" -le 0 ]]; then
+    return 0
+  fi
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    local child_pid
+    while IFS= read -r child_pid; do
+      [[ -n "$child_pid" ]] || continue
+      stop_process_tree "$child_pid"
+    done < <(pgrep -P "$pid" 2>/dev/null || true)
+  fi
+
+  kill "$pid" 2>/dev/null || true
+}
+
 # =============================================================================
 # ITERATION RUNNER
 # =============================================================================
 
 # Run a single agent iteration
-# Returns: signal (ROTATE, GUTTER, COMPLETE, or empty)
+# Returns: signal (ROTATE, GUTTER, COMPLETE, CONFIG_ERROR, DEFER, or empty)
 run_iteration() {
   local workspace="$1"
   local iteration="$2"
@@ -486,6 +573,31 @@ run_iteration() {
   
   local prompt=$(build_prompt "$workspace" "$iteration")
   local fifo="$workspace/.ralph/.parser_fifo"
+  local pipeline_status_file="$workspace/.ralph/.pipeline_status"
+  local spinner_pid=""
+  local agent_pid=""
+  local interrupted="false"
+
+  cleanup_iteration_processes() {
+    if [[ -n "$agent_pid" ]]; then
+      stop_process_tree "$agent_pid"
+      wait "$agent_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$spinner_pid" ]]; then
+      kill "$spinner_pid" 2>/dev/null || true
+      wait "$spinner_pid" 2>/dev/null || true
+    fi
+    rm -f "$fifo"
+    rm -f "$pipeline_status_file"
+    printf "\r\033[K" >&2
+  }
+
+  on_iteration_interrupt() {
+    interrupted="true"
+    cleanup_iteration_processes
+  }
+
+  trap on_iteration_interrupt HUP INT TERM
   
   # Create named pipe for parser signals
   rm -f "$fifo"
@@ -504,13 +616,32 @@ run_iteration() {
   
   # Log session start to progress.md
   log_progress "$workspace" "**Session $iteration started** (model: $MODEL)"
+
+  # Fail fast on invalid model values so loops do not silently spin.
+  local model_reason=""
+  if model_reason="$(model_value_invalid_reason "$MODEL")"; then
+    local quoted_model
+    printf -v quoted_model '%q' "$MODEL"
+    local error_msg="Invalid MODEL value before launch: $model_reason (value: $quoted_model)"
+    echo "❌ $error_msg" >&2
+    log_error "$workspace" "$error_msg"
+    log_progress "$workspace" "**Session $iteration aborted** - ❌ CONFIG_ERROR ($model_reason)"
+    trap - HUP INT TERM
+    rm -f "$fifo"
+    printf "\r\033[K" >&2
+    echo "CONFIG_ERROR"
+    return 0
+  fi
   
   # Build cursor-agent command
-  local cmd="cursor-agent -p --force --output-format stream-json --model $MODEL"
+  local -a cmd=(cursor-agent -p --force --output-format stream-json --model "$MODEL")
+  if [[ "$APPROVE_MCPS" == "true" ]]; then
+    cmd+=(--approve-mcps)
+  fi
   
   if [[ -n "$session_id" ]]; then
     echo "Resuming session: $session_id" >&2
-    cmd="$cmd --resume=\"$session_id\""
+    cmd+=(--resume "$session_id")
   fi
   
   # Change to workspace
@@ -518,14 +649,16 @@ run_iteration() {
   
   # Start spinner to show we're alive
   spinner "$workspace" &
-  local spinner_pid=$!
+  spinner_pid=$!
   
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
   (
-    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    set -o pipefail
+    "${cmd[@]}" "$prompt" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" "$WARN_THRESHOLD" "$ROTATE_THRESHOLD" > "$fifo"
+    printf '%s %s %s\n' "${PIPESTATUS[0]:-1}" "${PIPESTATUS[1]:-1}" "$?" > "$pipeline_status_file"
   ) &
-  local agent_pid=$!
+  agent_pid=$!
   
   # Read signals from parser
   local signal=""
@@ -565,16 +698,43 @@ run_iteration() {
     esac
   done < "$fifo"
   
-  # Wait for agent to finish
-  wait $agent_pid 2>/dev/null || true
-  
-  # Stop spinner and clear line
-  kill $spinner_pid 2>/dev/null || true
-  wait $spinner_pid 2>/dev/null || true
-  printf "\r\033[K" >&2  # Clear spinner line
-  
-  # Cleanup
-  rm -f "$fifo"
+  # Wait for agent to finish and clean up local processes
+  local wait_status=0
+  wait "$agent_pid" 2>/dev/null || wait_status=$?
+
+  local agent_exit_code=0
+  local parser_exit_code=0
+  local pipeline_exit_code=0
+  if [[ -f "$pipeline_status_file" ]]; then
+    read -r agent_exit_code parser_exit_code pipeline_exit_code < "$pipeline_status_file" || true
+  fi
+
+  cleanup_iteration_processes
+  trap - HUP INT TERM
+
+  if [[ "$interrupted" == "true" ]]; then
+    return 130
+  fi
+
+  # If no parser signal was emitted but the pipeline exited non-zero,
+  # convert silent "natural finish" into an actionable failure signal.
+  if [[ -z "$signal" ]] && [[ "${pipeline_exit_code:-0}" -ne 0 ]]; then
+    local startup_reason="cursor-agent pipeline failed (agent_exit=${agent_exit_code:-unknown}, parser_exit=${parser_exit_code:-unknown}, wait_exit=$wait_status)"
+    local startup_hint=""
+    if [[ -f "$workspace/.ralph/errors.log" ]]; then
+      startup_hint=$(awk '/NON_JSON:/ { last=$0 } END { print last }' "$workspace/.ralph/errors.log")
+    fi
+    if [[ -n "$startup_hint" ]]; then
+      startup_reason="$startup_reason; last_non_json_error=$startup_hint"
+    fi
+    log_error "$workspace" "$startup_reason"
+
+    if is_retryable_runtime_error "$startup_reason $startup_hint"; then
+      signal="DEFER"
+    else
+      signal="GUTTER"
+    fi
+  fi
   
   echo "$signal"
 }
@@ -718,6 +878,12 @@ run_ralph_loop() {
         
         # Don't increment iteration - retry the same task
         echo "   Resuming..."
+        ;;
+      "CONFIG_ERROR")
+        log_progress "$workspace" "**Session $iteration ended** - ❌ CONFIG_ERROR (invalid runtime configuration)"
+        echo ""
+        echo "❌ Invalid runtime configuration detected. See .ralph/errors.log for details."
+        return 1
         ;;
       *)
         # Agent finished naturally, check if more work needed

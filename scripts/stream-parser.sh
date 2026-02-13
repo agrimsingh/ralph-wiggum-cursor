@@ -8,8 +8,8 @@
 #   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
 #
 # Outputs to stdout:
-#   - ROTATE when threshold hit (80k tokens)
-#   - WARN when approaching limit (70k tokens)
+#   - ROTATE when threshold hit (ROTATE_THRESHOLD)
+#   - WARN when approaching limit (WARN_THRESHOLD)
 #   - GUTTER when stuck pattern detected
 #   - COMPLETE when agent outputs <ralph>COMPLETE</ralph>
 #
@@ -22,12 +22,16 @@ set -euo pipefail
 WORKSPACE="${1:-.}"
 RALPH_DIR="$WORKSPACE/.ralph"
 
+# Optional explicit thresholds (args 2/3) override env defaults
+WARN_THRESHOLD_ARG="${2:-}"
+ROTATE_THRESHOLD_ARG="${3:-}"
+
 # Ensure .ralph directory exists
 mkdir -p "$RALPH_DIR"
 
-# Thresholds
-WARN_THRESHOLD=70000
-ROTATE_THRESHOLD=80000
+# Thresholds: args > env vars > defaults
+WARN_THRESHOLD="${WARN_THRESHOLD_ARG:-${WARN_THRESHOLD:-70000}}"
+ROTATE_THRESHOLD="${ROTATE_THRESHOLD_ARG:-${ROTATE_THRESHOLD:-80000}}"
 
 # Tracking state
 BYTES_READ=0
@@ -37,6 +41,7 @@ SHELL_OUTPUT_CHARS=0
 PROMPT_CHARS=0
 TOOL_CALLS=0
 WARN_SENT=0
+NON_JSON_SIGNAL_SENT=0
 
 # Estimate initial prompt size (Ralph prompt is ~2KB + file references)
 PROMPT_CHARS=3000
@@ -204,8 +209,38 @@ process_line() {
   # Skip empty lines
   [[ -z "$line" ]] && return
   
-  # Parse JSON type
-  local type=$(echo "$line" | jq -r '.type // empty' 2>/dev/null) || return
+  # Parse JSON type. If line is not JSON, log it so startup/runtime failures
+  # are visible in .ralph/errors.log instead of being silently dropped.
+  local type
+  type=$(echo "$line" | jq -r '.type // empty' 2>/dev/null) || type=""
+  if [[ -z "$type" ]]; then
+    local trimmed="$line"
+    if [[ ${#trimmed} -gt 500 ]]; then
+      trimmed="${trimmed:0:500}..."
+    fi
+
+    log_error "NON_JSON: $trimmed"
+
+    # Emit a signal once for actionable startup/runtime failures that happen
+    # before stream-json events are produced.
+    if [[ "$NON_JSON_SIGNAL_SENT" -eq 0 ]]; then
+      local lower_line
+      lower_line=$(echo "$line" | tr '[:upper:]' '[:lower:]')
+
+      if is_retryable_api_error "$line"; then
+        NON_JSON_SIGNAL_SENT=1
+        log_error "⚠️ RETRYABLE NON_JSON ERROR: $trimmed"
+        echo "DEFER" 2>/dev/null || true
+      elif [[ "$lower_line" =~ (secitemcopymatching|keychain|not[[:space:]]+logged[[:space:]]+in|auth|authentication|approval|mcp) ]]; then
+        NON_JSON_SIGNAL_SENT=1
+        log_error "🚨 STARTUP NON_JSON ERROR: $trimmed"
+        echo "GUTTER" 2>/dev/null || true
+      fi
+    fi
+
+    return
+  fi
+
   local subtype=$(echo "$line" | jq -r '.subtype // empty' 2>/dev/null) || true
   
   case "$type" in
