@@ -478,6 +478,28 @@ spinner() {
   done
 }
 
+# Recursively stop a process and its children.
+stop_process_tree() {
+  local pid="${1:-}"
+  if [[ -z "$pid" ]] || [[ "$pid" -le 0 ]]; then
+    return 0
+  fi
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    local child_pid
+    while IFS= read -r child_pid; do
+      [[ -n "$child_pid" ]] || continue
+      stop_process_tree "$child_pid"
+    done < <(pgrep -P "$pid" 2>/dev/null || true)
+  fi
+
+  kill "$pid" 2>/dev/null || true
+}
+
 # =============================================================================
 # ITERATION RUNNER
 # =============================================================================
@@ -492,6 +514,29 @@ run_iteration() {
   
   local prompt=$(build_prompt "$workspace" "$iteration")
   local fifo="$workspace/.ralph/.parser_fifo"
+  local spinner_pid=""
+  local agent_pid=""
+  local interrupted="false"
+
+  cleanup_iteration_processes() {
+    if [[ -n "$agent_pid" ]]; then
+      stop_process_tree "$agent_pid"
+      wait "$agent_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$spinner_pid" ]]; then
+      kill "$spinner_pid" 2>/dev/null || true
+      wait "$spinner_pid" 2>/dev/null || true
+    fi
+    rm -f "$fifo"
+    printf "\r\033[K" >&2
+  }
+
+  on_iteration_interrupt() {
+    interrupted="true"
+    cleanup_iteration_processes
+  }
+
+  trap on_iteration_interrupt HUP INT TERM
   
   # Create named pipe for parser signals
   rm -f "$fifo"
@@ -524,14 +569,14 @@ run_iteration() {
   
   # Start spinner to show we're alive
   spinner "$workspace" &
-  local spinner_pid=$!
+  spinner_pid=$!
   
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
   (
     eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" "$WARN_THRESHOLD" "$ROTATE_THRESHOLD" > "$fifo"
   ) &
-  local agent_pid=$!
+  agent_pid=$!
   
   # Read signals from parser
   local signal=""
@@ -571,16 +616,14 @@ run_iteration() {
     esac
   done < "$fifo"
   
-  # Wait for agent to finish
-  wait $agent_pid 2>/dev/null || true
-  
-  # Stop spinner and clear line
-  kill $spinner_pid 2>/dev/null || true
-  wait $spinner_pid 2>/dev/null || true
-  printf "\r\033[K" >&2  # Clear spinner line
-  
-  # Cleanup
-  rm -f "$fifo"
+  # Wait for agent to finish and clean up local processes
+  wait "$agent_pid" 2>/dev/null || true
+  cleanup_iteration_processes
+  trap - HUP INT TERM
+
+  if [[ "$interrupted" == "true" ]]; then
+    return 130
+  fi
   
   echo "$signal"
 }
