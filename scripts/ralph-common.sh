@@ -23,16 +23,22 @@ fi
 # CONFIGURATION (can be overridden before sourcing)
 # =============================================================================
 
-# Token thresholds
-WARN_THRESHOLD="${WARN_THRESHOLD:-70000}"
-ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
-
-# Iteration limits
-MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
-
 # Model selection
-DEFAULT_MODEL="opus-4.5-thinking"
-MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
+DEFAULT_MODEL="${DEFAULT_MODEL:-opus-4.5-thinking}"
+
+# Resolve runtime config with consistent precedence:
+# explicit shell vars > env-backed vars > defaults
+resolve_ralph_runtime_config() {
+  WARN_THRESHOLD="${WARN_THRESHOLD:-70000}"
+  ROTATE_THRESHOLD="${ROTATE_THRESHOLD:-80000}"
+  MAX_ITERATIONS="${MAX_ITERATIONS:-20}"
+
+  # RALPH_MODEL acts as the env-backed default for MODEL.
+  MODEL="${MODEL:-${RALPH_MODEL:-$DEFAULT_MODEL}}"
+}
+
+# Apply config resolution immediately when sourced.
+resolve_ralph_runtime_config
 
 # Feature flags (set by caller)
 USE_BRANCH="${USE_BRANCH:-}"
@@ -523,7 +529,7 @@ run_iteration() {
   # Start parser in background, reading from cursor-agent
   # Parser outputs to fifo, we read signals from fifo
   (
-    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" > "$fifo"
+    eval "$cmd \"$prompt\"" 2>&1 | "$script_dir/stream-parser.sh" "$workspace" "$WARN_THRESHOLD" "$ROTATE_THRESHOLD" > "$fifo"
   ) &
   local agent_pid=$!
   

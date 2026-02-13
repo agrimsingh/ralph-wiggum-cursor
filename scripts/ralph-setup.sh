@@ -51,51 +51,62 @@ MODELS=(
 
 # Select model using gum or fallback
 select_model() {
+  local current_model="$1"
+  local keep_current_label="Keep current (${current_model})"
+  local model_options=("$keep_current_label" "${MODELS[@]}")
+
   if [[ "$HAS_GUM" == "true" ]]; then
     local selected
-    selected=$(gum choose --header "Select model:" "${MODELS[@]}")
+    selected=$(gum choose --header "Select model:" "${model_options[@]}")
     
-    if [[ "$selected" == "Custom..." ]]; then
-      selected=$(gum input --placeholder "Enter model name" --value "$DEFAULT_MODEL")
+    if [[ "$selected" == "$keep_current_label" ]]; then
+      selected="$current_model"
+    elif [[ "$selected" == "Custom..." ]]; then
+      selected=$(gum input --placeholder "Enter model name" --value "$current_model")
     fi
-    echo "$selected"
+    echo "${selected:-$current_model}"
   else
-    echo ""
-    echo "Select model:"
-    local i=1
-    for m in "${MODELS[@]}"; do
+    echo "" >&2
+    echo "Select model:" >&2
+    local i=0
+    for m in "${model_options[@]}"; do
       if [[ "$m" == "Custom..." ]]; then
-        echo "  $i) Custom (enter manually)"
+        echo "  $i) Custom (enter manually)" >&2
       else
-        echo "  $i) $m"
+        echo "  $i) $m" >&2
       fi
       ((i++))
     done
-    echo ""
-    read -p "Choice [1]: " choice
-    choice="${choice:-1}"
+    echo "" >&2
+    read -p "Choice [0]: " choice
+    choice="${choice:-0}"
     
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#MODELS[@]} ]]; then
-      local selected="${MODELS[$((choice-1))]}"
-      if [[ "$selected" == "Custom..." ]]; then
-        read -p "Enter model name: " selected
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 0 ]] && [[ "$choice" -lt ${#model_options[@]} ]]; then
+      local selected="${model_options[$choice]}"
+      if [[ "$selected" == "$keep_current_label" ]]; then
+        selected="$current_model"
+      elif [[ "$selected" == "Custom..." ]]; then
+        read -p "Enter model name [$current_model]: " selected
+        selected="${selected:-$current_model}"
       fi
       echo "$selected"
     else
-      echo "${MODELS[0]}"
+      echo "$current_model"
     fi
   fi
 }
 
 # Get max iterations using gum or fallback
 get_max_iterations() {
+  local current_iterations="$1"
+
   if [[ "$HAS_GUM" == "true" ]]; then
     local value
-    value=$(gum input --header "Max iterations:" --placeholder "20" --value "20")
-    echo "${value:-20}"
+    value=$(gum input --header "Max iterations:" --placeholder "$current_iterations" --value "$current_iterations")
+    echo "${value:-$current_iterations}"
   else
-    read -p "Max iterations [20]: " value
-    echo "${value:-20}"
+    read -p "Max iterations [$current_iterations]: " value
+    echo "${value:-$current_iterations}"
   fi
 }
 
@@ -116,14 +127,14 @@ select_options() {
     selected=$(gum choose --no-limit --header "Options (space to select, enter to confirm):" "${options[@]}") || true
     echo "$selected"
   else
-    echo ""
-    echo "Options (enter numbers separated by spaces, or press Enter to skip):"
+    echo "" >&2
+    echo "Options (enter numbers separated by spaces, or press Enter to skip):" >&2
     local i=1
     for opt in "${options[@]}"; do
-      echo "  $i) $opt"
+      echo "  $i) $opt" >&2
       ((i++))
     done
-    echo ""
+    echo "" >&2
     read -p "Select options [none]: " choices
     
     local selected=""
@@ -257,12 +268,16 @@ main() {
   fi
   echo ""
   
-  # 1. Select model
-  MODEL=$(select_model)
+  # Resolve runtime configuration once for setup defaults.
+  resolve_ralph_runtime_config
+
+  # 1. Select model (defaults to resolved runtime model)
+  MODEL=$(select_model "$MODEL")
+  RALPH_MODEL="$MODEL"
   echo "✓ Model: $MODEL"
   
-  # 2. Max iterations
-  MAX_ITERATIONS=$(get_max_iterations)
+  # 2. Max iterations (defaults to resolved runtime value)
+  MAX_ITERATIONS=$(get_max_iterations "$MAX_ITERATIONS")
   echo "✓ Max iterations: $MAX_ITERATIONS"
   
   # 3. Options
@@ -338,7 +353,10 @@ main() {
   
   # Export settings for the loop
   export MODEL
+  export RALPH_MODEL
   export MAX_ITERATIONS
+  export WARN_THRESHOLD
+  export ROTATE_THRESHOLD
   export USE_BRANCH
   export OPEN_PR
   

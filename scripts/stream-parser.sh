@@ -8,8 +8,8 @@
 #   cursor-agent -p --force --output-format stream-json "..." | ./stream-parser.sh /path/to/workspace
 #
 # Outputs to stdout:
-#   - ROTATE when threshold hit (80k tokens)
-#   - WARN when approaching limit (70k tokens)
+#   - ROTATE when threshold hit (ROTATE_THRESHOLD)
+#   - WARN when approaching limit (WARN_THRESHOLD)
 #   - GUTTER when stuck pattern detected
 #   - COMPLETE when agent outputs <ralph>COMPLETE</ralph>
 #
@@ -22,12 +22,16 @@ set -euo pipefail
 WORKSPACE="${1:-.}"
 RALPH_DIR="$WORKSPACE/.ralph"
 
+# Optional explicit thresholds (args 2/3) override env defaults
+WARN_THRESHOLD_ARG="${2:-}"
+ROTATE_THRESHOLD_ARG="${3:-}"
+
 # Ensure .ralph directory exists
 mkdir -p "$RALPH_DIR"
 
-# Thresholds
-WARN_THRESHOLD=70000
-ROTATE_THRESHOLD=80000
+# Thresholds: args > env vars > defaults
+WARN_THRESHOLD="${WARN_THRESHOLD_ARG:-${WARN_THRESHOLD:-70000}}"
+ROTATE_THRESHOLD="${ROTATE_THRESHOLD_ARG:-${ROTATE_THRESHOLD:-80000}}"
 
 # Tracking state
 BYTES_READ=0
